@@ -3,10 +3,7 @@
 #include <ctime>
 #include <mutex>
 #include <atomic>
-#include <memory>
-#include <iomanip>
 #include <iostream>
-#include <unordered_map>
 #include <boost/format.hpp>
 #include <boost/thread.hpp>
 #include <boost/filesystem.hpp>
@@ -14,32 +11,30 @@
 #include <Eigen/Dense>
 #include <pcl/io/pcd_io.h>
 
-#include <ros/ros.h>
+#include <rclcpp/duration.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <pcl_conversions/pcl_conversions.h>
 #include <geodesy/utm.h>
 #include <geodesy/wgs84.h>
-#include <pcl_ros/point_cloud.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
-#include <tf_conversions/tf_eigen.h>
-#include <tf/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
-#include <std_msgs/Time.h>
-#include <nav_msgs/Odometry.h>
-#include <nmea_msgs/Sentence.h>
-#include <sensor_msgs/Imu.h>
-#include <sensor_msgs/NavSatFix.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <geographic_msgs/GeoPointStamped.h>
-#include <visualization_msgs/MarkerArray.h>
-#include <hdl_graph_slam/FloorCoeffs.h>
+#include <std_msgs/msg/header.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <nmea_msgs/msg/sentence.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <geographic_msgs/msg/geo_point_stamped.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
+#include <hdl_graph_slam/msg/floor_coeffs.hpp>
 
-#include <hdl_graph_slam/SaveMap.h>
-#include <hdl_graph_slam/LoadGraph.h>
-#include <hdl_graph_slam/DumpGraph.h>
-
-#include <nodelet/nodelet.h>
-#include <pluginlib/class_list_macros.h>
+#include <hdl_graph_slam/srv/save_map.hpp>
+#include <hdl_graph_slam/srv/load_graph.hpp>
+#include <hdl_graph_slam/srv/dump_graph.hpp>
 
 #include <hdl_graph_slam/ros_utils.hpp>
 #include <hdl_graph_slam/ros_time_hash.hpp>
@@ -62,82 +57,93 @@
 
 namespace hdl_graph_slam {
 
-class HdlGraphSlamNodelet : public nodelet::Nodelet {
+class HdlGraphSlamNodelet : public rclcpp::Node {
 public:
-  typedef pcl::PointXYZI PointT;
-  typedef message_filters::sync_policies::ApproximateTime<nav_msgs::Odometry, sensor_msgs::PointCloud2> ApproxSyncPolicy;
+  using PointT = pcl::PointXYZI;
+  using ApproxSyncPolicy = message_filters::sync_policies::ApproximateTime<nav_msgs::msg::Odometry, sensor_msgs::msg::PointCloud2>;
+  // typedef message_filters::sync_policies::ApproximateTime<nav_msgs::Odometry, sensor_msgs::PointCloud2> ApproxSyncPolicy;
+  // using ApproxSyncPolicy = me
 
-  HdlGraphSlamNodelet() {}
+  HdlGraphSlamNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("hdl_graph_slam", options) {}
   virtual ~HdlGraphSlamNodelet() {}
 
-  virtual void onInit() {
-    nh = getNodeHandle();
-    mt_nh = getMTNodeHandle();
-    private_nh = getPrivateNodeHandle();
+  void onInit() {
+    tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
 
     // init parameters
-    published_odom_topic = private_nh.param<std::string>("published_odom_topic", "/odom");
-    map_frame_id = private_nh.param<std::string>("map_frame_id", "map");
-    odom_frame_id = private_nh.param<std::string>("odom_frame_id", "odom");
-    map_cloud_resolution = private_nh.param<double>("map_cloud_resolution", 0.05);
+    published_odom_topic = this->declare_parameter<std::string>("published_odom_topic", "/odom");
+    map_frame_id = this->declare_parameter<std::string>("map_frame_id", "map");
+    odom_frame_id = this->declare_parameter<std::string>("odom_frame_id", "odom");
+    map_cloud_resolution = this->declare_parameter<double>("map_cloud_resolution", 0.05);
     trans_odom2map.setIdentity();
 
-    max_keyframes_per_update = private_nh.param<int>("max_keyframes_per_update", 10);
+    max_keyframes_per_update = this->declare_parameter<int>("max_keyframes_per_update", 10);
+    std::string g2o_solver_type = this->declare_parameter<std::string>("g2o_solver_type", "lm_var");
 
-    //
+    fix_first_node = this->declare_parameter<bool>("fix_first_node", false);
+    fix_first_node_stddev = this->declare_parameter<std::string>("fix_first_node_stddev", "1 1 1 1 1 1");
+    odometry_edge_robust_kernel = this->declare_parameter<std::string>("odometry_edge_robust_kernel", "NONE");
+    odometry_edge_robust_kernel_size = this->declare_parameter<double>("odometry_edge_robust_kernel_size", 1.0);
+
     anchor_node = nullptr;
     anchor_edge = nullptr;
     floor_plane_node = nullptr;
-    graph_slam.reset(new GraphSLAM(private_nh.param<std::string>("g2o_solver_type", "lm_var")));
-    keyframe_updater.reset(new KeyframeUpdater(private_nh));
-    loop_detector.reset(new LoopDetector(private_nh));
+    graph_slam.reset(new GraphSLAM(g2o_solver_type));
+    keyframe_updater.reset(new KeyframeUpdater(shared_from_this()));
+    loop_detector.reset(new LoopDetector(shared_from_this()));
     map_cloud_generator.reset(new MapCloudGenerator());
-    inf_calclator.reset(new InformationMatrixCalculator(private_nh));
+    inf_calclator.reset(new InformationMatrixCalculator(shared_from_this()));
     nmea_parser.reset(new NmeaSentenceParser());
 
-    gps_time_offset = private_nh.param<double>("gps_time_offset", 0.0);
-    gps_edge_stddev_xy = private_nh.param<double>("gps_edge_stddev_xy", 10000.0);
-    gps_edge_stddev_z = private_nh.param<double>("gps_edge_stddev_z", 10.0);
-    floor_edge_stddev = private_nh.param<double>("floor_edge_stddev", 10.0);
+    gps_time_offset = this->declare_parameter<double>("gps_time_offset", 0.0);
+    gps_edge_stddev_xy = this->declare_parameter<double>("gps_edge_stddev_xy", 10000.0);
+    gps_edge_stddev_z = this->declare_parameter<double>("gps_edge_stddev_z", 10.0);
+    floor_edge_stddev = this->declare_parameter<double>("floor_edge_stddev", 10.0);
 
-    imu_time_offset = private_nh.param<double>("imu_time_offset", 0.0);
-    enable_imu_orientation = private_nh.param<bool>("enable_imu_orientation", false);
-    enable_imu_acceleration = private_nh.param<bool>("enable_imu_acceleration", false);
-    imu_orientation_edge_stddev = private_nh.param<double>("imu_orientation_edge_stddev", 0.1);
-    imu_acceleration_edge_stddev = private_nh.param<double>("imu_acceleration_edge_stddev", 3.0);
+    imu_time_offset = this->declare_parameter<double>("imu_time_offset", 0.0);
+    enable_imu_orientation = this->declare_parameter<bool>("enable_imu_orientation", false);
+    enable_imu_acceleration = this->declare_parameter<bool>("enable_imu_acceleration", false);
+    imu_orientation_edge_stddev = this->declare_parameter<double>("imu_orientation_edge_stddev", 0.1);
+    imu_acceleration_edge_stddev = this->declare_parameter<double>("imu_acceleration_edge_stddev", 3.0);
 
-    points_topic = private_nh.param<std::string>("points_topic", "/velodyne_points");
+    points_topic = this->declare_parameter<std::string>("points_topic", "/velodyne_points");
 
     // subscribers
-    odom_sub.reset(new message_filters::Subscriber<nav_msgs::Odometry>(mt_nh, published_odom_topic, 256));
-    cloud_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(mt_nh, "/filtered_points", 32));
+    odom_sub.reset(new message_filters::Subscriber<nav_msgs::msg::Odometry>(mt_nh, published_odom_topic, 256));
+    cloud_sub.reset(new message_filters::Subscriber<sensor_msgs::msg::PointCloud2>(mt_nh, "/filtered_points", 32));
     sync.reset(new message_filters::Synchronizer<ApproxSyncPolicy>(ApproxSyncPolicy(32), *odom_sub, *cloud_sub));
     sync->registerCallback(boost::bind(&HdlGraphSlamNodelet::cloud_callback, this, _1, _2));
-    imu_sub = nh.subscribe("/gpsimu_driver/imu_data", 1024, &HdlGraphSlamNodelet::imu_callback, this);
-    floor_sub = nh.subscribe("/floor_detection/floor_coeffs", 1024, &HdlGraphSlamNodelet::floor_coeffs_callback, this);
+    imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("gpsimu_driver/imu_data", 1024, std::bind(&HdlGraphSlamNodelet::imu_callback, this, std::placeholders::_1));
+    floor_sub = this->create_subscription<hdl_graph_slam::msg::FloorCoeffs>("floor_detection/floor_coeffs", 1024, std::bind(&HdlGraphSlamNodelet::floor_coeffs_callback, this, std::placeholders::_1));
 
-    if(private_nh.param<bool>("enable_gps", true)) {
-      gps_sub = mt_nh.subscribe("/gps/geopoint", 1024, &HdlGraphSlamNodelet::gps_callback, this);
-      nmea_sub = mt_nh.subscribe("/gpsimu_driver/nmea_sentence", 1024, &HdlGraphSlamNodelet::nmea_callback, this);
-      navsat_sub = mt_nh.subscribe("/gps/navsat", 1024, &HdlGraphSlamNodelet::navsat_callback, this);
+    bool enable_gps = this->declare_parameter<bool>("enable_gps", true);
+    if(enable_gps) {
+      gps_sub = this->create_subscription<geographic_msgs::msg::GeoPointStamped>("gps/geopoint", 1024, std::bind(&HdlGraphSlamNodelet::gps_callback, this, std::placeholders::_1));
+      nmea_sub = this->create_subscription<nmea_msgs::msg::Sentence>("gpsimu_driver/nmea_sentence", 1024, std::bind(&HdlGraphSlamNodelet::nmea_callback, this, std::placeholders::_1));
+      navsat_sub = this->create_subscription<sensor_msgs::msg::NavSatFix>("gps/navsat", 1024, std::bind(&HdlGraphSlamNodelet::navsat_callback, this, std::placeholders::_1));
     }
 
     // publishers
-    markers_pub = mt_nh.advertise<visualization_msgs::MarkerArray>("/hdl_graph_slam/markers", 16);
-    odom2map_pub = mt_nh.advertise<geometry_msgs::TransformStamped>("/hdl_graph_slam/odom2pub", 16);
-    map_points_pub = mt_nh.advertise<sensor_msgs::PointCloud2>("/hdl_graph_slam/map_points", 1, true);
-    read_until_pub = mt_nh.advertise<std_msgs::Header>("/hdl_graph_slam/read_until", 32);
+    rclcpp::QoS qos(rclcpp::KeepLast(1));
+    qos.transient_local();
+    markers_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("hdl_graph_slam/markers", 16);
+    odom2map_pub = this->create_publisher<geometry_msgs::msg::TransformStamped>("hdl_graph_slam/odom2pub", 16);
+    map_points_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("hdl_graph_slam/map_points", qos);
+    read_until_pub = this->create_publisher<std_msgs::msg::Header>("hdl_graph_slam/read_until", 32);
 
 
-    load_service_server = mt_nh.advertiseService("/hdl_graph_slam/load", &HdlGraphSlamNodelet::load_service, this);
-    dump_service_server = mt_nh.advertiseService("/hdl_graph_slam/dump", &HdlGraphSlamNodelet::dump_service, this);
-    save_map_service_server = mt_nh.advertiseService("/hdl_graph_slam/save_map", &HdlGraphSlamNodelet::save_map_service, this);
+    // FIXME: mt_nh?
+    load_service_server = this->create_service<hdl_graph_slam::srv::LoadGraph>("hdl_graph_slam/load", std::bind(&HdlGraphSlamNodelet::load_service, this, std::placeholders::_1, std::placeholders::_2));
+    dump_service_server = this->create_service<hdl_graph_slam::srv::DumpGraph>("hdl_graph_slam/dump", std::bind(&HdlGraphSlamNodelet::dump_service, this, std::placeholders::_1, std::placeholders::_2));
+    save_map_service_server = this->create_service<hdl_graph_slam::srv::SaveMap>("hdl_graph_slam/save_map", std::bind(&HdlGraphSlamNodelet::save_map_service, this, std::placeholders::_1, std::placeholders::_2));
 
     graph_updated = false;
-    double graph_update_interval = private_nh.param<double>("graph_update_interval", 3.0);
-    double map_cloud_update_interval = private_nh.param<double>("map_cloud_update_interval", 10.0);
-    optimization_timer = mt_nh.createWallTimer(ros::WallDuration(graph_update_interval), &HdlGraphSlamNodelet::optimization_timer_callback, this);
-    map_publish_timer = mt_nh.createWallTimer(ros::WallDuration(map_cloud_update_interval), &HdlGraphSlamNodelet::map_points_publish_timer_callback, this);
+    double graph_update_interval = this->declare_parameter<double>("graph_update_interval", 3.0);
+    double map_cloud_update_interval = this->declare_parameter<double>("map_cloud_update_interval", 10.0);
+    optimization_timer = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(graph_update_interval * 1000)), std::bind(&HdlGraphSlamNodelet::optimization_timer_callback, this));
+    map_publish_timer = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(map_cloud_update_interval * 1000)), std::bind(&HdlGraphSlamNodelet::map_points_publish_timer_callback, this));
+    // this->create_wall_timer()
   }
 
 private:
@@ -146,8 +152,8 @@ private:
    * @param odom_msg
    * @param cloud_msg
    */
-  void cloud_callback(const nav_msgs::OdometryConstPtr& odom_msg, const sensor_msgs::PointCloud2::ConstPtr& cloud_msg) {
-    const ros::Time& stamp = cloud_msg->header.stamp;
+  void cloud_callback(nav_msgs::msg::Odometry::ConstSharedPtr odom_msg, sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud_msg) {
+    const rclcpp::Time &stamp = cloud_msg->header.stamp;
     Eigen::Isometry3d odom = odom2isometry(odom_msg);
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
@@ -159,12 +165,12 @@ private:
     if(!keyframe_updater->update(odom)) {
       std::lock_guard<std::mutex> lock(keyframe_queue_mutex);
       if(keyframe_queue.empty()) {
-        std_msgs::Header read_until;
-        read_until.stamp = stamp + ros::Duration(10, 0);
+        std_msgs::msg::Header read_until;
+        read_until.stamp = stamp + rclcpp::Duration(10, 0);
         read_until.frame_id = points_topic;
-        read_until_pub.publish(read_until);
+        read_until_pub->publish(read_until);
         read_until.frame_id = "/filtered_points";
-        read_until_pub.publish(read_until);
+        read_until_pub->publish(read_until);
       }
 
       return;
@@ -208,10 +214,10 @@ private:
 
       // fix the first node
       if(keyframes.empty() && new_keyframes.size() == 1) {
-      
-        if(private_nh.param<bool>("fix_first_node", false)) {
+        
+        if(this->get_parameter("fix_first_node").as_bool()) {
           Eigen::MatrixXd inf = Eigen::MatrixXd::Identity(6, 6);
-          std::stringstream sst(private_nh.param<std::string>("fix_first_node_stddev", "1 1 1 1 1 1"));
+          std::stringstream sst(this->get_parameter("fix_first_node_stddev").as_string());
           for(int i = 0; i < 6; i++) {
             double stddev = 1.0;
             sst >> stddev;
@@ -234,28 +240,30 @@ private:
       Eigen::Isometry3d relative_pose = keyframe->odom.inverse() * prev_keyframe->odom;
       Eigen::MatrixXd information = inf_calclator->calc_information_matrix(keyframe->cloud, prev_keyframe->cloud, relative_pose);
       auto edge = graph_slam->add_se3_edge(keyframe->node, prev_keyframe->node, relative_pose, information);
-      graph_slam->add_robust_kernel(edge, private_nh.param<std::string>("odometry_edge_robust_kernel", "NONE"), private_nh.param<double>("odometry_edge_robust_kernel_size", 1.0));
+      odometry_edge_robust_kernel = this->get_parameter("odometry_edge_robust_kernel").as_string();
+      odometry_edge_robust_kernel_size = this->get_parameter("odometry_edge_robust_kernel_size").as_double();
+      graph_slam->add_robust_kernel(edge, odometry_edge_robust_kernel, odometry_edge_robust_kernel_size);
     }
 
-    std_msgs::Header read_until;
-    read_until.stamp = keyframe_queue[num_processed]->stamp + ros::Duration(10, 0);
+    std_msgs::msg::Header read_until;
+    read_until.stamp = keyframe_queue[num_processed]->stamp + rclcpp::Duration(10, 0);
     read_until.frame_id = points_topic;
-    read_until_pub.publish(read_until);
+    read_until_pub->publish(read_until);
     read_until.frame_id = "/filtered_points";
-    read_until_pub.publish(read_until);
+    read_until_pub->publish(read_until);
 
     keyframe_queue.erase(keyframe_queue.begin(), keyframe_queue.begin() + num_processed + 1);
     return true;
   }
 
-  void nmea_callback(const nmea_msgs::SentenceConstPtr& nmea_msg) {
+  void nmea_callback(nmea_msgs::msg::Sentence::ConstSharedPtr nmea_msg) {
     GPRMC grmc = nmea_parser->parse(nmea_msg->sentence);
 
     if(grmc.status != 'A') {
       return;
     }
 
-    geographic_msgs::GeoPointStampedPtr gps_msg(new geographic_msgs::GeoPointStamped());
+    auto gps_msg = std::make_shared<geographic_msgs::msg::GeoPointStamped>();
     gps_msg->header = nmea_msg->header;
     gps_msg->position.latitude = grmc.latitude;
     gps_msg->position.longitude = grmc.longitude;
@@ -264,8 +272,8 @@ private:
     gps_callback(gps_msg);
   }
 
-  void navsat_callback(const sensor_msgs::NavSatFixConstPtr& navsat_msg) {
-    geographic_msgs::GeoPointStampedPtr gps_msg(new geographic_msgs::GeoPointStamped());
+  void navsat_callback(sensor_msgs::msg::NavSatFix::ConstSharedPtr navsat_msg) {
+    auto gps_msg = std::make_shared<geographic_msgs::msg::GeoPointStamped>();
     gps_msg->header = navsat_msg->header;
     gps_msg->position.latitude = navsat_msg->latitude;
     gps_msg->position.longitude = navsat_msg->longitude;
@@ -277,9 +285,9 @@ private:
    * @brief received gps data is added to #gps_queue
    * @param gps_msg
    */
-  void gps_callback(const geographic_msgs::GeoPointStampedPtr& gps_msg) {
+  void gps_callback(geographic_msgs::msg::GeoPointStamped::SharedPtr gps_msg) {
     std::lock_guard<std::mutex> lock(gps_queue_mutex);
-    gps_msg->header.stamp += ros::Duration(gps_time_offset);
+    gps_msg->header.stamp = gps_msg->header.stamp + rclcpp::Duration(gps_time_offset);
     gps_queue.push_back(gps_msg);
   }
 
@@ -357,7 +365,7 @@ private:
     return updated;
   }
 
-  void imu_callback(const sensor_msgs::ImuPtr& imu_msg) {
+  void imu_callback(sensor_msgs::msg::Imu::SharedPtr& imu_msg) {
     if(!enable_imu_orientation && !enable_imu_acceleration) {
       return;
     }
@@ -454,7 +462,7 @@ private:
    * @brief received floor coefficients are added to #floor_coeffs_queue
    * @param floor_coeffs_msg
    */
-  void floor_coeffs_callback(const hdl_graph_slam::FloorCoeffsConstPtr& floor_coeffs_msg) {
+  void floor_coeffs_callback(hdl_graph_slam::msg::FloorCoeffs::ConstSharedPtr floor_coeffs_msg) {
     if(floor_coeffs_msg->coeffs.empty()) {
       return;
     }
@@ -514,7 +522,7 @@ private:
    * @brief generate map point cloud and publish it
    * @param event
    */
-  void map_points_publish_timer_callback(const ros::WallTimerEvent& event) {
+  void map_points_publish_timer_callback() {
     if(!map_points_pub.getNumSubscribers() || !graph_updated) {
       return;
     }
@@ -536,14 +544,14 @@ private:
     sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
     pcl::toROSMsg(*cloud, *cloud_msg);
 
-    map_points_pub.publish(cloud_msg);
+    map_points_pub->publish(cloud_msg);
   }
 
   /**
    * @brief this methods adds all the data in the queues to the pose graph, and then optimizes the pose graph
    * @param event
    */
-  void optimization_timer_callback(const ros::WallTimerEvent& event) {
+  void optimization_timer_callback() {
     std::lock_guard<std::mutex> lock(main_thread_mutex);
 
     // add keyframes and floor coeffs in the queues to the pose graph
@@ -551,11 +559,11 @@ private:
 
     if(!keyframe_updated) {
       std_msgs::Header read_until;
-      read_until.stamp = ros::Time::now() + ros::Duration(30, 0);
+      read_until.stamp = rclcpp::Clock().now() + rclcpp::Duration(30, 0);
       read_until.frame_id = points_topic;
-      read_until_pub.publish(read_until);
+      read_until_pub->publish(read_until);
       read_until.frame_id = "/filtered_points";
-      read_until_pub.publish(read_until);
+      read_until_pub->publish(read_until);
     }
 
     if(!keyframe_updated & !flush_floor_queue() & !flush_gps_queue() & !flush_imu_queue()) {
@@ -602,12 +610,12 @@ private:
 
     if(odom2map_pub.getNumSubscribers()) {
       geometry_msgs::TransformStamped ts = matrix2transform(keyframe->stamp, trans.matrix().cast<float>(), map_frame_id, odom_frame_id);
-      odom2map_pub.publish(ts);
+      odom2map_pub->publish(ts);
     }
 
     if(markers_pub.getNumSubscribers()) {
       auto markers = create_marker_array(ros::Time::now());
-      markers_pub.publish(markers);
+      markers_pub->publish(markers);
     }
   }
 
@@ -616,7 +624,7 @@ private:
    * @param stamp
    * @return
    */
-  visualization_msgs::MarkerArray create_marker_array(const ros::Time& stamp) const {
+  visualization_msgs::msg::MarkerArray create_marker_array(const rclcpp::Time& stamp) const {
     visualization_msgs::MarkerArray markers;
     markers.markers.resize(4);
 
@@ -815,7 +823,8 @@ private:
    * @param res
    * @return
    */
-  bool load_service(hdl_graph_slam::LoadGraphRequest& req, hdl_graph_slam::LoadGraphResponse& res) {
+  bool load_service(hdl_graph_slam::srv::LoadGraph::Request::ConstSharedPtr req,
+                    hdl_graph_slam::srv::LoadGraph::Response::SharedPtr res) {
     std::lock_guard<std::mutex> lock(main_thread_mutex);
 
     std::string directory = req.path;
@@ -929,7 +938,8 @@ private:
    * @param res
    * @return
    */
-  bool dump_service(hdl_graph_slam::DumpGraphRequest& req, hdl_graph_slam::DumpGraphResponse& res) {
+  bool dump_service(hdl_graph_slam::srv::DumpGraph::Request::ConstSharedPtr req,
+                    hdl_graph_slam::srv::DumpGraph::Response::SharedPtr res) {
     std::lock_guard<std::mutex> lock(main_thread_mutex);
 
     std::string directory = req.destination;
@@ -979,7 +989,8 @@ private:
    * @param res
    * @return
    */
-  bool save_map_service(hdl_graph_slam::SaveMapRequest& req, hdl_graph_slam::SaveMapResponse& res) {
+  bool save_map_service(hdl_graph_slam::srv::SaveMap::Request::ConstSharedPtr req,
+                        hdl_graph_slam::srv::SaveMap::Response::SharedPtr res) {
     std::vector<KeyFrameSnapshot::Ptr> snapshot;
 
     keyframes_snapshot_mutex.lock();
@@ -1014,24 +1025,23 @@ private:
 
 private:
   // ROS
-  ros::NodeHandle nh;
-  ros::NodeHandle mt_nh;
-  ros::NodeHandle private_nh;
-  ros::WallTimer optimization_timer;
-  ros::WallTimer map_publish_timer;
+  rclcpp::TimerBase::SharedPtr optimization_timer;
+  rclcpp::TimerBase::SharedPtr map_publish_timer;
 
-  std::unique_ptr<message_filters::Subscriber<nav_msgs::Odometry>> odom_sub;
-  std::unique_ptr<message_filters::Subscriber<sensor_msgs::PointCloud2>> cloud_sub;
+  std::unique_ptr<message_filters::Subscriber<nav_msgs::msg::Odometry>> odom_sub;
+  std::unique_ptr<message_filters::Subscriber<sensor_msgs::msg::PointCloud2>> cloud_sub;
   std::unique_ptr<message_filters::Synchronizer<ApproxSyncPolicy>> sync;
 
-  ros::Subscriber gps_sub;
-  ros::Subscriber nmea_sub;
-  ros::Subscriber navsat_sub;
+  rclcpp::Subscription<geographic_msgs::msg::GeoPointStamped>::SharedPtr gps_sub;
+  rclcpp::Subscription<nmea_msgs::msg::Sentence>::SharedPtr nmea_sub;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr navsat_sub;
 
-  ros::Subscriber imu_sub;
-  ros::Subscriber floor_sub;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr navsat_msg;
 
-  ros::Publisher markers_pub;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
+  rclcpp::Subscription<hdl_graph_slam::msg::FloorCoeffs>::SharedPtr floor_sub;
+
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub;
 
   std::string published_odom_topic;
   std::string map_frame_id;
@@ -1039,22 +1049,27 @@ private:
 
   std::mutex trans_odom2map_mutex;
   Eigen::Matrix4f trans_odom2map;
-  ros::Publisher odom2map_pub;
+  rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr odom2map_pub;
 
   std::string points_topic;
-  ros::Publisher read_until_pub;
-  ros::Publisher map_points_pub;
+  rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr read_until_pub;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_points_pub;
 
-  tf::TransformListener tf_listener;
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener;
 
-  ros::ServiceServer load_service_server;
-  ros::ServiceServer dump_service_server;
-  ros::ServiceServer save_map_service_server;
+  rclcpp::Service<hdl_graph_slam::srv::LoadGraph>::SharedPtr load_service_server;
+  rclcpp::Service<hdl_graph_slam::srv::DumpGraph>::SharedPtr dump_service_server;
+  rclcpp::Service<hdl_graph_slam::srv::SaveMap>::SharedPtr save_map_service_server;
 
   // keyframe queue
   std::string base_frame_id;
   std::mutex keyframe_queue_mutex;
   std::deque<KeyFrame::Ptr> keyframe_queue;
+  bool fix_first_node;
+  std::string fix_first_node_stddev;
+  std::string odometry_edge_robust_kernel;
+  double odometry_edge_robust_kernel_size;
 
   // gps queue
   double gps_time_offset;
@@ -1062,7 +1077,7 @@ private:
   double gps_edge_stddev_z;
   boost::optional<Eigen::Vector3d> zero_utm;
   std::mutex gps_queue_mutex;
-  std::deque<geographic_msgs::GeoPointStampedConstPtr> gps_queue;
+  std::deque<geographic_msgs::msg::GeoPointStamped::ConstSharedPtr> gps_queue;
 
   // imu queue
   double imu_time_offset;
@@ -1071,12 +1086,12 @@ private:
   bool enable_imu_acceleration;
   double imu_acceleration_edge_stddev;
   std::mutex imu_queue_mutex;
-  std::deque<sensor_msgs::ImuConstPtr> imu_queue;
+  std::deque<sensor_msgs::msg::Imu::ConstSharedPtr> imu_queue;
 
   // floor_coeffs queue
   double floor_edge_stddev;
   std::mutex floor_coeffs_queue_mutex;
-  std::deque<hdl_graph_slam::FloorCoeffsConstPtr> floor_coeffs_queue;
+  std::deque<hdl_graph_slam::msg::FloorCoeffs::ConstSharedPtr> floor_coeffs_queue;
 
   // for map cloud generation
   std::atomic_bool graph_updated;
@@ -1096,7 +1111,7 @@ private:
   g2o::EdgeSE3* anchor_edge;
   g2o::VertexPlane* floor_plane_node;
   std::vector<KeyFrame::Ptr> keyframes;
-  std::unordered_map<ros::Time, KeyFrame::Ptr, RosTimeHash> keyframe_hash;
+  std::unordered_map<rclcpp::Time, KeyFrame::Ptr, RosTimeHash> keyframe_hash;
 
   std::unique_ptr<GraphSLAM> graph_slam;
   std::unique_ptr<LoopDetector> loop_detector;
@@ -1105,7 +1120,12 @@ private:
 
   std::unique_ptr<InformationMatrixCalculator> inf_calclator;
 };
-
 }  // namespace hdl_graph_slam
 
-PLUGINLIB_EXPORT_CLASS(hdl_graph_slam::HdlGraphSlamNodelet, nodelet::Nodelet)
+int main(int argc, char **argv) {
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<hdl_graph_slam::HdlGraphSlam>();
+  node->onInit();
+  rclcpp::spin(node);
+  rclcpp::shutdown();
+}

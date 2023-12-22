@@ -3,7 +3,7 @@
 #ifndef KEYFRAME_UPDATER_HPP
 #define KEYFRAME_UPDATER_HPP
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <Eigen/Dense>
 
 namespace hdl_graph_slam {
@@ -19,7 +19,7 @@ public:
    * @brief constructor
    * @param pnh
    */
-  KeyframeUpdater(ros::NodeHandle& pnh) : is_first(true), prev_keypose(Eigen::Isometry3d::Identity()) {
+  KeyframeUpdater(rclcpp::Node::SharedPtr node) : is_first(true), prev_keypose(Eigen::Isometry3d::Identity()) {
     keyframe_delta_trans = pnh.param<double>("keyframe_delta_trans", 2.0);
     keyframe_delta_angle = pnh.param<double>("keyframe_delta_angle", 2.0);
 

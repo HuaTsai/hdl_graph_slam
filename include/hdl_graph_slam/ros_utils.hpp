@@ -5,10 +5,12 @@
 
 #include <Eigen/Dense>
 
-#include <ros/ros.h>
-#include <nav_msgs/Odometry.h>
-#include <geometry_msgs/Pose.h>
-#include <geometry_msgs/TransformStamped.h>
+#include <rclcpp/rclcpp.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/pose.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <tf2/transform_datatypes.h>
+#include <tf2_ros/buffer.h>
 
 namespace hdl_graph_slam {
 
@@ -20,16 +22,16 @@ namespace hdl_graph_slam {
  * @param child_frame_id   tf child frame_id
  * @return converted TransformStamped
  */
-static geometry_msgs::TransformStamped matrix2transform(const ros::Time& stamp, const Eigen::Matrix4f& pose, const std::string& frame_id, const std::string& child_frame_id) {
+static geometry_msgs::msg::TransformStamped matrix2transform(const rclcpp::Time& stamp, const Eigen::Matrix4f& pose, const std::string& frame_id, const std::string& child_frame_id) {
   Eigen::Quaternionf quat(pose.block<3, 3>(0, 0));
   quat.normalize();
-  geometry_msgs::Quaternion odom_quat;
+  geometry_msgs::msg::Quaternion odom_quat;
   odom_quat.w = quat.w();
   odom_quat.x = quat.x();
   odom_quat.y = quat.y();
   odom_quat.z = quat.z();
 
-  geometry_msgs::TransformStamped odom_trans;
+  geometry_msgs::msg::TransformStamped odom_trans;
   odom_trans.header.stamp = stamp;
   odom_trans.header.frame_id = frame_id;
   odom_trans.child_frame_id = child_frame_id;
@@ -42,25 +44,25 @@ static geometry_msgs::TransformStamped matrix2transform(const ros::Time& stamp, 
   return odom_trans;
 }
 
-static Eigen::Isometry3d pose2isometry(const geometry_msgs::Pose& pose) {
+static Eigen::Isometry3d pose2isometry(const geometry_msgs::msg::Pose& pose) {
   Eigen::Isometry3d mat = Eigen::Isometry3d::Identity();
   mat.translation() = Eigen::Vector3d(pose.position.x, pose.position.y, pose.position.z);
   mat.linear() = Eigen::Quaterniond(pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z).toRotationMatrix();
   return mat;
 }
 
-static Eigen::Isometry3d tf2isometry(const tf::StampedTransform& trans) {
+static Eigen::Isometry3d tf2isometry(const tf2::Stamped<tf2::Transform>& trans) {
   Eigen::Isometry3d mat = Eigen::Isometry3d::Identity();
   mat.translation() = Eigen::Vector3d(trans.getOrigin().x(), trans.getOrigin().y(), trans.getOrigin().z());
   mat.linear() = Eigen::Quaterniond(trans.getRotation().w(), trans.getRotation().x(), trans.getRotation().y(), trans.getRotation().z()).toRotationMatrix();
   return mat;
 }
 
-static geometry_msgs::Pose isometry2pose(const Eigen::Isometry3d& mat) {
+static geometry_msgs::msg::Pose isometry2pose(const Eigen::Isometry3d& mat) {
   Eigen::Quaterniond quat(mat.linear());
   Eigen::Vector3d trans = mat.translation();
 
-  geometry_msgs::Pose pose;
+  geometry_msgs::msg::Pose pose;
   pose.position.x = trans.x();
   pose.position.y = trans.y();
   pose.position.z = trans.z();
@@ -72,7 +74,7 @@ static geometry_msgs::Pose isometry2pose(const Eigen::Isometry3d& mat) {
   return pose;
 }
 
-static Eigen::Isometry3d odom2isometry(const nav_msgs::OdometryConstPtr& odom_msg) {
+static Eigen::Isometry3d odom2isometry(nav_msgs::msg::Odometry::ConstSharedPtr odom_msg) {
   const auto& orientation = odom_msg->pose.pose.orientation;
   const auto& position = odom_msg->pose.pose.position;
 

@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: BSD-2-Clause
-
 #include <string>
 
-#include <ros/ros.h>
-#include <ros/time.h>
-#include <pcl_ros/transforms.h>
-#include <pcl_ros/point_cloud.h>
-#include <tf/transform_listener.h>
+#include <rclcpp/rclcpp.hpp>
+// #include <pcl_ros/transforms.hpp>
+// #include <pcl_ros/point_cloud.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
-#include <sensor_msgs/Imu.h>
-#include <sensor_msgs/PointCloud2.h>
-
-#include <nodelet/nodelet.h>
-#include <pluginlib/class_list_macros.h>
+#include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -24,32 +20,32 @@
 
 namespace hdl_graph_slam {
 
-class PrefilteringNodelet : public nodelet::Nodelet {
+class PrefilteringNodelet : public rclcpp::Node {
 public:
-  typedef pcl::PointXYZI PointT;
+  using PointT = pcl::PointXYZI;
 
-  PrefilteringNodelet() {}
-  virtual ~PrefilteringNodelet() {}
+  PrefilteringNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("prefiltering_nodelet", options) {}
 
-  virtual void onInit() {
-    nh = getNodeHandle();
-    private_nh = getPrivateNodeHandle();
-
+  void onInit() {
     initialize_params();
 
-    if(private_nh.param<bool>("deskewing", false)) {
-      imu_sub = nh.subscribe("/imu/data", 1, &PrefilteringNodelet::imu_callback, this);
+    tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
+
+    bool deskewing = this->declare_parameter<bool>("deskewing", false);
+    if(deskewing) {
+      imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("/imu/data", 1, std::bind(&PrefilteringNodelet::imu_callback, this, std::placeholders::_1));
     }
 
-    points_sub = nh.subscribe("/velodyne_points", 64, &PrefilteringNodelet::cloud_callback, this);
-    points_pub = nh.advertise<sensor_msgs::PointCloud2>("/filtered_points", 32);
-    colored_pub = nh.advertise<sensor_msgs::PointCloud2>("/colored_points", 32);
+    points_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>("/velodyne_points", 64, std::bind(&PrefilteringNodelet::cloud_callback, this, std::placeholders::_1));
+    points_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/filtered_points", 32);
+    colored_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/colored_points", 32);
   }
 
 private:
   void initialize_params() {
-    std::string downsample_method = private_nh.param<std::string>("downsample_method", "VOXELGRID");
-    double downsample_resolution = private_nh.param<double>("downsample_resolution", 0.1);
+    std::string downsample_method = this->declare_parameter<std::string>("downsample_method", "VOXELGRID");
+    double downsample_resolution = this->declare_parameter<double>("downsample_resolution", 0.1);
 
     if(downsample_method == "VOXELGRID") {
       std::cout << "downsample: VOXELGRID " << downsample_resolution << std::endl;
@@ -69,10 +65,10 @@ private:
       std::cout << "downsample: NONE" << std::endl;
     }
 
-    std::string outlier_removal_method = private_nh.param<std::string>("outlier_removal_method", "STATISTICAL");
+    std::string outlier_removal_method = this->declare_parameter<std::string>("outlier_removal_method", "STATISTICAL");
     if(outlier_removal_method == "STATISTICAL") {
-      int mean_k = private_nh.param<int>("statistical_mean_k", 20);
-      double stddev_mul_thresh = private_nh.param<double>("statistical_stddev", 1.0);
+      int mean_k = this->declare_parameter<int>("statistical_mean_k", 20);
+      double stddev_mul_thresh = this->declare_parameter<double>("statistical_stddev", 1.0);
       std::cout << "outlier_removal: STATISTICAL " << mean_k << " - " << stddev_mul_thresh << std::endl;
 
       pcl::StatisticalOutlierRemoval<PointT>::Ptr sor(new pcl::StatisticalOutlierRemoval<PointT>());
@@ -80,8 +76,8 @@ private:
       sor->setStddevMulThresh(stddev_mul_thresh);
       outlier_removal_filter = sor;
     } else if(outlier_removal_method == "RADIUS") {
-      double radius = private_nh.param<double>("radius_radius", 0.8);
-      int min_neighbors = private_nh.param<int>("radius_min_neighbors", 2);
+      double radius = this->declare_parameter<double>("radius_radius", 0.8);
+      int min_neighbors = this->declare_parameter<int>("radius_min_neighbors", 2);
       std::cout << "outlier_removal: RADIUS " << radius << " - " << min_neighbors << std::endl;
 
       pcl::RadiusOutlierRemoval<PointT>::Ptr rad(new pcl::RadiusOutlierRemoval<PointT>());
@@ -92,14 +88,14 @@ private:
       std::cout << "outlier_removal: NONE" << std::endl;
     }
 
-    use_distance_filter = private_nh.param<bool>("use_distance_filter", true);
-    distance_near_thresh = private_nh.param<double>("distance_near_thresh", 1.0);
-    distance_far_thresh = private_nh.param<double>("distance_far_thresh", 100.0);
+    use_distance_filter = this->declare_parameter<bool>("use_distance_filter", true);
+    distance_near_thresh = this->declare_parameter<double>("distance_near_thresh", 1.0);
+    distance_far_thresh = this->declare_parameter<double>("distance_far_thresh", 100.0);
 
-    base_link_frame = private_nh.param<std::string>("base_link_frame", "");
+    base_link_frame = this->declare_parameter<std::string>("base_link_frame", "");
   }
 
-  void imu_callback(const sensor_msgs::ImuConstPtr& imu_msg) {
+  void imu_callback(sensor_msgs::msg::Imu::ConstSharedPtr imu_msg) {
     imu_queue.push_back(imu_msg);
   }
 
@@ -113,7 +109,9 @@ private:
 
     // if base_link_frame is defined, transform the input cloud to the frame
     if(!base_link_frame.empty()) {
-      if(!tf_listener.canTransform(base_link_frame, src_cloud->header.frame_id, ros::Time(0))) {
+      // if(!tf_listener.canTransform(base_link_frame, src_cloud->header.frame_id, ros::Time(0))) {
+      std::string tf_error;
+      if (this->tf_buffer->canTransform(base_link_frame, src_cloud->header.frame_id, tf2::TimePointZero, &tf_error))) {
         std::cerr << "failed to find transform between " << base_link_frame << " and " << src_cloud->header.frame_id << std::endl;
       }
 
@@ -243,18 +241,16 @@ private:
   }
 
 private:
-  ros::NodeHandle nh;
-  ros::NodeHandle private_nh;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
+  std::vector<sensor_msgs::msg::Imu::ConstSharedPtr> imu_queue;
 
-  ros::Subscriber imu_sub;
-  std::vector<sensor_msgs::ImuConstPtr> imu_queue;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr points_pub;
 
-  ros::Subscriber points_sub;
-  ros::Publisher points_pub;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr colored_pub;
 
-  ros::Publisher colored_pub;
-
-  tf::TransformListener tf_listener;
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener;
 
   std::string base_link_frame;
 
@@ -268,4 +264,10 @@ private:
 
 }  // namespace hdl_graph_slam
 
-PLUGINLIB_EXPORT_CLASS(hdl_graph_slam::PrefilteringNodelet, nodelet::Nodelet)
+int main(int argc, char **argv) {
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<hdl_graph_slam::PrefilteringNodelet>();
+  node->onInit();
+  rclcpp::spin(node);
+  rclcpp::shutdown();
+}

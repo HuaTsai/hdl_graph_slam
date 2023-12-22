@@ -3,7 +3,7 @@
 #ifndef KEYFRAME_HPP
 #define KEYFRAME_HPP
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <boost/optional.hpp>
@@ -25,7 +25,7 @@ public:
   using PointT = pcl::PointXYZI;
   using Ptr = std::shared_ptr<KeyFrame>;
 
-  KeyFrame(const ros::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud);
+  KeyFrame(const rclcpp::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud);
   KeyFrame(const std::string& directory, g2o::HyperGraph* graph);
   virtual ~KeyFrame();
 
@@ -36,7 +36,7 @@ public:
   Eigen::Isometry3d estimate() const;
 
 public:
-  ros::Time stamp;                                // timestamp
+  rclcpp::Time stamp;                                // timestamp
   Eigen::Isometry3d odom;                         // odometry (estimated by scan_matching_odometry)
   double accum_distance;                          // accumulated distance from the first node (by scan_matching_odometry)
   pcl::PointCloud<PointT>::ConstPtr cloud;        // point cloud

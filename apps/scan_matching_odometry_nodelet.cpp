@@ -3,22 +3,17 @@
 #include <memory>
 #include <iostream>
 
-#include <ros/ros.h>
-#include <ros/time.h>
-#include <ros/duration.h>
-#include <pcl_ros/point_cloud.h>
-#include <tf_conversions/tf_eigen.h>
-#include <tf/transform_listener.h>
-#include <tf/transform_broadcaster.h>
+#include <rclcpp/rclcpp.hpp>
+#include <pcl_conversions/pcl_conversions.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/transform_broadcaster.h>
 
-#include <std_msgs/Time.h>
-#include <nav_msgs/Odometry.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <geometry_msgs/TransformStamped.h>
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
-
-#include <nodelet/nodelet.h>
-#include <pluginlib/class_list_macros.h>
+#include <std_msgs/msg/header.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/passthrough.h>
@@ -26,36 +21,34 @@
 
 #include <hdl_graph_slam/ros_utils.hpp>
 #include <hdl_graph_slam/registrations.hpp>
-#include <hdl_graph_slam/ScanMatchingStatus.h>
+#include <hdl_graph_slam/msg/scan_matching_status.hpp>
 
 namespace hdl_graph_slam {
 
-class ScanMatchingOdometryNodelet : public nodelet::Nodelet {
+class ScanMatchingOdometryNodelet : public rclcpp::Node {
 public:
-  typedef pcl::PointXYZI PointT;
+  using PointT = pcl::PointXYZI;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  ScanMatchingOdometryNodelet() {}
-  virtual ~ScanMatchingOdometryNodelet() {}
+  ScanMatchingOdometryNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("scan_matching_odometry_nodelet", options) {}
 
-  virtual void onInit() {
-    NODELET_DEBUG("initializing scan_matching_odometry_nodelet...");
-    nh = getNodeHandle();
-    private_nh = getPrivateNodeHandle();
+  void onInit() {
+    RCLCPP_DEBUG(this->get_logger(), "initializing scan_matching_odometry_nodelet...");
 
     initialize_params();
 
-    if(private_nh.param<bool>("enable_imu_frontend", false)) {
-      msf_pose_sub = nh.subscribe<geometry_msgs::PoseWithCovarianceStamped>("/msf_core/pose", 1, boost::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, _1, false));
-      msf_pose_after_update_sub = nh.subscribe<geometry_msgs::PoseWithCovarianceStamped>("/msf_core/pose_after_update", 1, boost::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, _1, true));
+    bool enable_imu_frontend = this->declare_parameter<bool>("enable_imu_frontend", false);
+    if(enable_imu_frontend) {
+      msf_pose_sub = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("msf_core/pose", 1, std::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, std::placeholders::_1, false));
+      msf_pose_after_update_sub = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("msf_core/pose_after_update", 1, std::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, std::placeholders::_1, true));
     }
 
-    points_sub = nh.subscribe("/filtered_points", 256, &ScanMatchingOdometryNodelet::cloud_callback, this);
-    read_until_pub = nh.advertise<std_msgs::Header>("/scan_matching_odometry/read_until", 32);
-    odom_pub = nh.advertise<nav_msgs::Odometry>(published_odom_topic, 32);
-    trans_pub = nh.advertise<geometry_msgs::TransformStamped>("/scan_matching_odometry/transform", 32);
-    status_pub = private_nh.advertise<ScanMatchingStatus>("/scan_matching_odometry/status", 8);
-    aligned_points_pub = nh.advertise<sensor_msgs::PointCloud2>("/aligned_points", 32);
+    points_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_points", 256, std::bind(&ScanMatchingOdometryNodelet::cloud_callback, this, std::placeholders::_1));
+    read_until_pub = this->create_publisher<std_msgs::msg::Header>("scan_matching_odometry/read_until", 32);
+    odom_pub = this->create_publisher<nav_msgs::msg::Odometry>(published_odom_topic, 32);
+    trans_pub = this->create_publisher<geometry_msgs::msg::TransformStamped>("scan_matching_odometry/transform", 32);
+    status_pub = this->create_publisher<hdl_graph_slam::msg::ScanMatchingStatus>("scan_matching_odometry/status", 8);
+    aligned_points_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("aligned_points", 32);
   }
 
 private:
@@ -63,26 +56,25 @@ private:
    * @brief initialize parameters
    */
   void initialize_params() {
-    auto& pnh = private_nh;
-    published_odom_topic = private_nh.param<std::string>("published_odom_topic", "/odom");
-    points_topic = pnh.param<std::string>("points_topic", "/velodyne_points");
-    odom_frame_id = pnh.param<std::string>("odom_frame_id", "odom");
-    robot_odom_frame_id = pnh.param<std::string>("robot_odom_frame_id", "robot_odom");
+    published_odom_topic = this->declare_parameter<std::string>("published_odom_topic", "/odom");
+    points_topic = this->declare_parameter<std::string>("points_topic", "/velodyne_points");
+    odom_frame_id = this->declare_parameter<std::string>("odom_frame_id", "odom");
+    robot_odom_frame_id = this->declare_parameter<std::string>("robot_odom_frame_id", "robot_odom");
 
     // The minimum tranlational distance and rotation angle between keyframes.
     // If this value is zero, frames are always compared with the previous frame
-    keyframe_delta_trans = pnh.param<double>("keyframe_delta_trans", 0.25);
-    keyframe_delta_angle = pnh.param<double>("keyframe_delta_angle", 0.15);
-    keyframe_delta_time = pnh.param<double>("keyframe_delta_time", 1.0);
+    keyframe_delta_trans = this->declare_parameter<double>("keyframe_delta_trans", 0.25);
+    keyframe_delta_angle = this->declare_parameter<double>("keyframe_delta_angle", 0.15);
+    keyframe_delta_time = this->declare_parameter<double>("keyframe_delta_time", 1.0);
 
     // Registration validation by thresholding
-    transform_thresholding = pnh.param<bool>("transform_thresholding", false);
-    max_acceptable_trans = pnh.param<double>("max_acceptable_trans", 1.0);
-    max_acceptable_angle = pnh.param<double>("max_acceptable_angle", 1.0);
+    transform_thresholding = this->declare_parameter<bool>("transform_thresholding", false);
+    max_acceptable_trans = this->declare_parameter<double>("max_acceptable_trans", 1.0);
+    max_acceptable_angle = this->declare_parameter<double>("max_acceptable_angle", 1.0);
 
     // select a downsample method (VOXELGRID, APPROX_VOXELGRID, NONE)
-    std::string downsample_method = pnh.param<std::string>("downsample_method", "VOXELGRID");
-    double downsample_resolution = pnh.param<double>("downsample_resolution", 0.1);
+    std::string downsample_method = this->declare_parameter<std::string>("downsample_method", "VOXELGRID");
+    double downsample_resolution = this->declare_parameter<double>("downsample_resolution", 0.1);
     if(downsample_method == "VOXELGRID") {
       std::cout << "downsample: VOXELGRID " << downsample_resolution << std::endl;
       auto voxelgrid = new pcl::VoxelGrid<PointT>();
@@ -103,15 +95,15 @@ private:
       downsample_filter = passthrough;
     }
 
-    registration = select_registration_method(pnh);
+    registration = select_registration_method(shared_from_this());
   }
 
   /**
    * @brief callback for point clouds
    * @param cloud_msg  point cloud msg
    */
-  void cloud_callback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
-    if(!ros::ok()) {
+  void cloud_callback(sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud_msg) {
+    if(!rclcpp::ok()) {
       return;
     }
 
@@ -122,16 +114,16 @@ private:
     publish_odometry(cloud_msg->header.stamp, cloud_msg->header.frame_id, pose);
 
     // In offline estimation, point clouds until the published time will be supplied
-    std_msgs::HeaderPtr read_until(new std_msgs::Header());
-    read_until->frame_id = points_topic;
-    read_until->stamp = cloud_msg->header.stamp + ros::Duration(1, 0);
-    read_until_pub.publish(read_until);
+    std_msgs::msg::Header read_until;
+    read_until.frame_id = points_topic;
+    read_until.stamp = cloud_msg->header.stamp + rclcpp::Duration(1, 0);
+    read_until_pub->publish(read_until);
 
-    read_until->frame_id = "/filtered_points";
-    read_until_pub.publish(read_until);
+    read_until.frame_id = "/filtered_points";
+    read_until_pub->publish(read_until);
   }
 
-  void msf_pose_callback(const geometry_msgs::PoseWithCovarianceStampedConstPtr& pose_msg, bool after_update) {
+  void msf_pose_callback(geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr pose_msg, bool after_update) {
     if(after_update) {
       msf_pose_after_update = pose_msg;
     } else {
@@ -162,9 +154,9 @@ private:
    * @param cloud  the input cloud
    * @return the relative pose between the input cloud and the keyframe cloud
    */
-  Eigen::Matrix4f matching(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+  Eigen::Matrix4f matching(const rclcpp::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
     if(!keyframe) {
-      prev_time = ros::Time();
+      prev_time = rclcpp::Time(0);
       prev_trans.setIdentity();
       keyframe_pose.setIdentity();
       keyframe_stamp = stamp;
@@ -300,7 +292,7 @@ private:
       return;
     }
 
-    ScanMatchingStatus status;
+    hdl_graph_slam::msg::ScanMatchingStatus status;
     status.header.frame_id = frame_id;
     status.header.stamp = stamp;
     status.has_converged = registration->hasConverged();
@@ -336,26 +328,26 @@ private:
 
 private:
   // ROS topics
-  ros::NodeHandle nh;
-  ros::NodeHandle private_nh;
 
-  ros::Subscriber points_sub;
-  ros::Subscriber msf_pose_sub;
-  ros::Subscriber msf_pose_after_update_sub;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr msf_pose_sub;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr msf_pose_after_update_sub;
 
-  ros::Publisher odom_pub;
-  ros::Publisher trans_pub;
-  ros::Publisher aligned_points_pub;
-  ros::Publisher status_pub;
-  tf::TransformListener tf_listener;
-  tf::TransformBroadcaster odom_broadcaster;
-  tf::TransformBroadcaster keyframe_broadcaster;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub;
+  rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr trans_pub;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aligned_points_pub;
+  rclcpp::Publisher<hdl_graph_slam::msg::ScanMatchingStatus>::SharedPtr status_pub;
+
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener;
+  std::shared_ptr<tf2_ros::TransformBroadcaster> odom_broadcaster;
+  std::shared_ptr<tf2_ros::TransformBroadcaster> keyframe_broadcaster;
 
   std::string published_odom_topic;
   std::string points_topic;
   std::string odom_frame_id;
   std::string robot_odom_frame_id;
-  ros::Publisher read_until_pub;
+  rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr read_until_pub;
 
   // keyframe parameters
   double keyframe_delta_trans;  // minimum distance between keyframes
@@ -368,13 +360,13 @@ private:
   double max_acceptable_angle;
 
   // odometry calculation
-  geometry_msgs::PoseWithCovarianceStampedConstPtr msf_pose;
-  geometry_msgs::PoseWithCovarianceStampedConstPtr msf_pose_after_update;
+  geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msf_pose;
+  geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msf_pose_after_update;
 
-  ros::Time prev_time;
+  rclcpp::Time prev_time;
   Eigen::Matrix4f prev_trans;                  // previous estimated transform from keyframe
   Eigen::Matrix4f keyframe_pose;               // keyframe pose
-  ros::Time keyframe_stamp;                    // keyframe time
+  rclcpp::Time keyframe_stamp;                    // keyframe time
   pcl::PointCloud<PointT>::ConstPtr keyframe;  // keyframe point cloud
 
   //
@@ -384,4 +376,10 @@ private:
 
 }  // namespace hdl_graph_slam
 
-PLUGINLIB_EXPORT_CLASS(hdl_graph_slam::ScanMatchingOdometryNodelet, nodelet::Nodelet)
+int main(int argc, char **argv) {
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<hdl_graph_slam::ScanMatchingOdometryNodelet>();
+  node->onInit();
+  rclcpp::spin(node);
+  rclcpp::shutdown();
+}

@@ -30,21 +30,22 @@ public:
  */
 class LoopDetector {
 public:
-  typedef pcl::PointXYZI PointT;
+  using PointT = pcl::PointXYZI;
 
   /**
    * @brief constructor
    * @param pnh
    */
-  LoopDetector(ros::NodeHandle& pnh) {
-    distance_thresh = pnh.param<double>("distance_thresh", 5.0);
-    accum_distance_thresh = pnh.param<double>("accum_distance_thresh", 8.0);
-    distance_from_last_edge_thresh = pnh.param<double>("min_edge_interval", 5.0);
+  LoopDetector(rclcpp::Node::SharedPtr parent_node) : node(parent_node) {
+    
+    distance_thresh = node->declare_parameter("distance_thresh", 5.0);
+    accum_distance_thresh = node->declare_parameter("accum_distance_thresh", 8.0);
+    distance_from_last_edge_thresh = node->declare_parameter("min_edge_interval", 5.0);
 
-    fitness_score_max_range = pnh.param<double>("fitness_score_max_range", std::numeric_limits<double>::max());
-    fitness_score_thresh = pnh.param<double>("fitness_score_thresh", 0.5);
+    fitness_score_max_range = node->declare_parameter("fitness_score_max_range", std::numeric_limits<double>::max());
+    fitness_score_thresh = node->declare_parameter("fitness_score_thresh", 0.5);
 
-    registration = select_registration_method(pnh);
+    registration = select_registration_method(node);
     last_edge_accum_distance = 0.0;
   }
 
@@ -129,7 +130,7 @@ private:
     std::cout << "--- loop detection ---" << std::endl;
     std::cout << "num_candidates: " << candidate_keyframes.size() << std::endl;
     std::cout << "matching" << std::flush;
-    auto t1 = ros::Time::now();
+    auto t1 = rclcpp::Clock().now();
 
     pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());
     for(const auto& candidate : candidate_keyframes) {
@@ -153,9 +154,9 @@ private:
       relative_pose = registration->getFinalTransformation();
     }
 
-    auto t2 = ros::Time::now();
+    auto t2 = rclcpp::Clock().now();
     std::cout << " done" << std::endl;
-    std::cout << "best_score: " << boost::format("%.3f") % best_score << "    time: " << boost::format("%.3f") % (t2 - t1).toSec() << "[sec]" << std::endl;
+    std::cout << "best_score: " << boost::format("%.3f") % best_score << "    time: " << boost::format("%.3f") % (t2 - t1).seconds() << "[sec]" << std::endl;
 
     if(best_score > fitness_score_thresh) {
       std::cout << "loop not found..." << std::endl;
@@ -171,6 +172,8 @@ private:
   }
 
 private:
+  rclcpp::Node::SharedPtr node;
+
   double distance_thresh;                 // estimated distance between keyframes consisting a loop must be less than this distance
   double accum_distance_thresh;           // traveled distance between ...
   double distance_from_last_edge_thresh;  // a new loop edge must far from the last one at least this distance

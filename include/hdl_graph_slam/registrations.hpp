@@ -3,7 +3,7 @@
 #ifndef HDL_GRAPH_SLAM_REGISTRATIONS_HPP
 #define HDL_GRAPH_SLAM_REGISTRATIONS_HPP
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 
 #include <pcl/registration/registration.h>
 
@@ -14,7 +14,7 @@ namespace hdl_graph_slam {
  * @param pnh
  * @return selected scan matching
  */
-pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>::Ptr select_registration_method(ros::NodeHandle& pnh);
+pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>::Ptr select_registration_method(rclcpp::Node::SharedPtr node);
 
 }  // namespace hdl_graph_slam
 
