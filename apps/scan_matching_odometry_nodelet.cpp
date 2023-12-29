@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BSD-2-Clause
-
 #include <memory>
 #include <iostream>
 
 #include <rclcpp/rclcpp.hpp>
 #include <pcl_conversions/pcl_conversions.h>
+#include <tf2_eigen/tf2_eigen.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -37,7 +37,9 @@ public:
 
     initialize_params();
 
-    bool enable_imu_frontend = this->declare_parameter<bool>("enable_imu_frontend", false);
+    tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
+
     if(enable_imu_frontend) {
       msf_pose_sub = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("msf_core/pose", 1, std::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, std::placeholders::_1, false));
       msf_pose_after_update_sub = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("msf_core/pose_after_update", 1, std::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, std::placeholders::_1, true));
@@ -71,6 +73,9 @@ private:
     transform_thresholding = this->declare_parameter<bool>("transform_thresholding", false);
     max_acceptable_trans = this->declare_parameter<double>("max_acceptable_trans", 1.0);
     max_acceptable_angle = this->declare_parameter<double>("max_acceptable_angle", 1.0);
+
+    enable_imu_frontend = this->declare_parameter<bool>("enable_imu_frontend", false);
+    enable_robot_odometry_init_guess = this->declare_parameter<bool>("enable_robot_odometry_init_guess", false);
 
     // select a downsample method (VOXELGRID, APPROX_VOXELGRID, NONE)
     std::string downsample_method = this->declare_parameter<std::string>("downsample_method", "VOXELGRID");
@@ -116,7 +121,7 @@ private:
     // In offline estimation, point clouds until the published time will be supplied
     std_msgs::msg::Header read_until;
     read_until.frame_id = points_topic;
-    read_until.stamp = cloud_msg->header.stamp + rclcpp::Duration(1, 0);
+    read_until.stamp = rclcpp::Duration(1, 0) + cloud_msg->header.stamp;
     read_until_pub->publish(read_until);
 
     read_until.frame_id = "/filtered_points";
@@ -171,10 +176,12 @@ private:
     std::string msf_source;
     Eigen::Isometry3f msf_delta = Eigen::Isometry3f::Identity();
 
-    if(private_nh.param<bool>("enable_imu_frontend", false)) {
-      if(msf_pose && msf_pose->header.stamp > keyframe_stamp && msf_pose_after_update && msf_pose_after_update->header.stamp > keyframe_stamp) {
-        Eigen::Isometry3d pose0 = pose2isometry(msf_pose_after_update->pose.pose);
-        Eigen::Isometry3d pose1 = pose2isometry(msf_pose->pose.pose);
+    if(enable_imu_frontend) {
+      if(msf_pose && rclcpp::Time(msf_pose->header.stamp) > keyframe_stamp &&
+         msf_pose_after_update && rclcpp::Time(msf_pose_after_update->header.stamp) > keyframe_stamp) {
+        Eigen::Isometry3d pose0, pose1;
+        tf2::fromMsg(msf_pose_after_update->pose.pose, pose0);
+        tf2::fromMsg(msf_pose->pose.pose, pose1);
         Eigen::Isometry3d delta = pose0.inverse() * pose1;
 
         msf_source = "imu";
@@ -182,19 +189,27 @@ private:
       } else {
         std::cerr << "msf data is too old" << std::endl;
       }
-    } else if(private_nh.param<bool>("enable_robot_odometry_init_guess", false) && !prev_time.isZero()) {
-      tf::StampedTransform transform;
-      if(tf_listener.waitForTransform(cloud->header.frame_id, stamp, cloud->header.frame_id, prev_time, robot_odom_frame_id, ros::Duration(0))) {
-        tf_listener.lookupTransform(cloud->header.frame_id, stamp, cloud->header.frame_id, prev_time, robot_odom_frame_id, transform);
-      } else if(tf_listener.waitForTransform(cloud->header.frame_id, ros::Time(0), cloud->header.frame_id, prev_time, robot_odom_frame_id, ros::Duration(0))) {
-        tf_listener.lookupTransform(cloud->header.frame_id, ros::Time(0), cloud->header.frame_id, prev_time, robot_odom_frame_id, transform);
+    } else if(enable_robot_odometry_init_guess && prev_time.nanoseconds() != 0) {
+      geometry_msgs::msg::TransformStamped transform;
+      if (tf_buffer->canTransform(cloud->header.frame_id, stamp, cloud->header.frame_id, prev_time, robot_odom_frame_id)) {
+        try {
+          transform = tf_buffer->lookupTransform(cloud->header.frame_id, stamp, cloud->header.frame_id, prev_time, robot_odom_frame_id);
+        } catch (const tf2::TransformException& e) {
+          RCLCPP_INFO(this->get_logger(), "Could not transform of frame %s from time %f to %f", cloud->header.frame_id.c_str(), prev_time.seconds(), stamp.seconds());
+        }
+      } else if (tf_buffer->canTransform(cloud->header.frame_id, rclcpp::Time(0), cloud->header.frame_id, prev_time, robot_odom_frame_id)) {
+        try {
+          transform = tf_buffer->lookupTransform(cloud->header.frame_id, rclcpp::Time(0), cloud->header.frame_id, prev_time, robot_odom_frame_id);
+        } catch (const tf2::TransformException& e) {
+          RCLCPP_INFO(this->get_logger(), "Could not transform of frame %s from time %f to latest", cloud->header.frame_id.c_str(), prev_time.seconds());
+        }
       }
 
-      if(transform.stamp_.isZero()) {
-        NODELET_WARN_STREAM("failed to look up transform between " << cloud->header.frame_id << " and " << robot_odom_frame_id);
+      if(transform.header.stamp.sec == 0 && transform.header.stamp.nanosec == 0) {
+        RCLCPP_INFO(this->get_logger(), "failed to look up transform between %s and %s", cloud->header.frame_id.c_str(), robot_odom_frame_id.c_str());
       } else {
         msf_source = "odometry";
-        msf_delta = tf2isometry(transform).cast<float>();
+        msf_delta = tf2::transformToEigen(transform.transform).cast<float>();
       }
     }
 
@@ -204,8 +219,8 @@ private:
     publish_scan_matching_status(stamp, cloud->header.frame_id, aligned, msf_source, msf_delta);
 
     if(!registration->hasConverged()) {
-      NODELET_INFO_STREAM("scan matching has not converged!!");
-      NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
+      RCLCPP_INFO(this->get_logger(), "scan matching has not converged!!");
+      RCLCPP_INFO(this->get_logger(), "ignore this frame (time: %f)", stamp.seconds());
       return keyframe_pose * prev_trans;
     }
 
@@ -218,8 +233,8 @@ private:
       double da = std::acos(Eigen::Quaternionf(delta.block<3, 3>(0, 0)).w());
 
       if(dx > max_acceptable_trans || da > max_acceptable_angle) {
-        NODELET_INFO_STREAM("too large transform!!  " << dx << "[m] " << da << "[rad]");
-        NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
+        RCLCPP_INFO(this->get_logger(), "too large transform!! %f [m] %f [rad]", dx, da);
+        RCLCPP_INFO(this->get_logger(), "ignore this frame (time: %f)", stamp.seconds());
         return keyframe_pose * prev_trans;
       }
     }
@@ -228,11 +243,11 @@ private:
     prev_trans = trans;
 
     auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
-    keyframe_broadcaster.sendTransform(keyframe_trans);
+    keyframe_broadcaster->sendTransform(keyframe_trans);
 
     double delta_trans = trans.block<3, 1>(0, 3).norm();
     double delta_angle = std::acos(Eigen::Quaternionf(trans.block<3, 3>(0, 0)).w());
-    double delta_time = (stamp - keyframe_stamp).toSec();
+    double delta_time = (stamp - keyframe_stamp).seconds();
     if(delta_trans > keyframe_delta_trans || delta_angle > keyframe_delta_angle || delta_time > keyframe_delta_time) {
       keyframe = filtered;
       registration->setInputTarget(keyframe);
@@ -243,11 +258,13 @@ private:
       prev_trans.setIdentity();
     }
 
-    if (aligned_points_pub.getNumSubscribers() > 0)
+    if (aligned_points_pub->get_subscription_count() > 0)
     {
       pcl::transformPointCloud (*cloud, *aligned, odom);
-      aligned->header.frame_id=odom_frame_id;
-      aligned_points_pub.publish(*aligned);
+      aligned->header.frame_id = odom_frame_id;
+      sensor_msgs::msg::PointCloud2 pc2;
+      pcl::toROSMsg(*aligned, pc2);
+      aligned_points_pub->publish(pc2);
     }
 
     return odom;
@@ -258,16 +275,16 @@ private:
    * @param stamp  timestamp
    * @param pose   odometry pose to be published
    */
-  void publish_odometry(const ros::Time& stamp, const std::string& base_frame_id, const Eigen::Matrix4f& pose) {
+  void publish_odometry(const rclcpp::Time& stamp, const std::string& base_frame_id, const Eigen::Matrix4f& pose) {
     // publish transform stamped for IMU integration
-    geometry_msgs::TransformStamped odom_trans = matrix2transform(stamp, pose, odom_frame_id, base_frame_id);
-    trans_pub.publish(odom_trans);
+    geometry_msgs::msg::TransformStamped odom_trans = matrix2transform(stamp, pose, odom_frame_id, base_frame_id);
+    trans_pub->publish(odom_trans);
 
     // broadcast the transform over tf
-    odom_broadcaster.sendTransform(odom_trans);
+    odom_broadcaster->sendTransform(odom_trans);
 
     // publish the transform
-    nav_msgs::Odometry odom;
+    nav_msgs::msg::Odometry odom;
     odom.header.stamp = stamp;
     odom.header.frame_id = odom_frame_id;
 
@@ -281,14 +298,14 @@ private:
     odom.twist.twist.linear.y = 0.0;
     odom.twist.twist.angular.z = 0.0;
 
-    odom_pub.publish(odom);
+    odom_pub->publish(odom);
   }
 
   /**
    * @brief publish scan matching status
    */
-  void publish_scan_matching_status(const ros::Time& stamp, const std::string& frame_id, pcl::PointCloud<pcl::PointXYZI>::ConstPtr aligned, const std::string& msf_source, const Eigen::Isometry3f& msf_delta) {
-    if(!status_pub.getNumSubscribers()) {
+  void publish_scan_matching_status(const rclcpp::Time& stamp, const std::string& frame_id, pcl::PointCloud<pcl::PointXYZI>::ConstPtr aligned, const std::string& msf_source, const Eigen::Isometry3f& msf_delta) {
+    if(!status_pub->get_subscription_count()) {
       return;
     }
 
@@ -303,7 +320,7 @@ private:
     int num_inliers = 0;
     std::vector<int> k_indices;
     std::vector<float> k_sq_dists;
-    for(int i=0; i<aligned->size(); i++) {
+    for(size_t i=0; i<aligned->size(); i++) {
       const auto& pt = aligned->at(i);
       registration->getSearchMethodTarget()->nearestKSearch(pt, 1, k_indices, k_sq_dists);
       if(k_sq_dists[0] < max_correspondence_dist * max_correspondence_dist) {
@@ -312,7 +329,7 @@ private:
     }
     status.inlier_fraction = static_cast<float>(num_inliers) / aligned->size();
 
-    status.relative_pose = isometry2pose(Eigen::Isometry3f(registration->getFinalTransformation()).cast<double>());
+    status.relative_pose = tf2::toMsg(Eigen::Isometry3d(registration->getFinalTransformation().cast<double>()));
 
     if(!msf_source.empty()) {
       status.prediction_labels.resize(1);
@@ -320,10 +337,10 @@ private:
 
       status.prediction_errors.resize(1);
       Eigen::Isometry3f error = Eigen::Isometry3f(registration->getFinalTransformation()).inverse() * msf_delta;
-      status.prediction_errors[0] = isometry2pose(error.cast<double>());
+      status.prediction_errors[0] = tf2::toMsg(error.cast<double>());
     }
 
-    status_pub.publish(status);
+    status_pub->publish(status);
   }
 
 private:
@@ -343,6 +360,8 @@ private:
   std::shared_ptr<tf2_ros::TransformBroadcaster> odom_broadcaster;
   std::shared_ptr<tf2_ros::TransformBroadcaster> keyframe_broadcaster;
 
+  bool enable_imu_frontend;
+  bool enable_robot_odometry_init_guess;
   std::string published_odom_topic;
   std::string points_topic;
   std::string odom_frame_id;

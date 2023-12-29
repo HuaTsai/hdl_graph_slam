@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: BSD-2-Clause
+#include <sensor_msgs/msg/detail/point_cloud2__struct.hpp>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
-// #include <pcl_ros/transforms.hpp>
+#include <pcl_ros/transforms.hpp>
 // #include <pcl_ros/point_cloud.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <pcl_conversions/pcl_conversions.h>
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -93,6 +95,7 @@ private:
     distance_far_thresh = this->declare_parameter<double>("distance_far_thresh", 100.0);
 
     base_link_frame = this->declare_parameter<std::string>("base_link_frame", "");
+    scan_period = this->declare_parameter<double>("scan_period", 0.1);
   }
 
   void imu_callback(sensor_msgs::msg::Imu::ConstSharedPtr imu_msg) {
@@ -109,15 +112,16 @@ private:
 
     // if base_link_frame is defined, transform the input cloud to the frame
     if(!base_link_frame.empty()) {
-      // if(!tf_listener.canTransform(base_link_frame, src_cloud->header.frame_id, ros::Time(0))) {
-      std::string tf_error;
-      if (this->tf_buffer->canTransform(base_link_frame, src_cloud->header.frame_id, tf2::TimePointZero, &tf_error))) {
-        std::cerr << "failed to find transform between " << base_link_frame << " and " << src_cloud->header.frame_id << std::endl;
+      geometry_msgs::msg::TransformStamped transform;
+      if (!tf_buffer->canTransform(base_link_frame, src_cloud->header.frame_id, rclcpp::Time(0))) {
+        RCLCPP_INFO(this->get_logger(), "Failed to find transform between %s and %s", base_link_frame.c_str(), src_cloud->header.frame_id.c_str());
+      } else {
+        try {
+          transform = tf_buffer->lookupTransform(base_link_frame, src_cloud->header.frame_id, rclcpp::Time(0));
+        } catch (const tf2::TransformException& e) {
+          RCLCPP_INFO(this->get_logger(), "Failed to find transform between %s and %s", base_link_frame.c_str(), src_cloud->header.frame_id.c_str());
+        }
       }
-
-      tf::StampedTransform transform;
-      tf_listener.waitForTransform(base_link_frame, src_cloud->header.frame_id, ros::Time(0), ros::Duration(2.0));
-      tf_listener.lookupTransform(base_link_frame, src_cloud->header.frame_id, ros::Time(0), transform);
 
       pcl::PointCloud<PointT>::Ptr transformed(new pcl::PointCloud<PointT>());
       pcl_ros::transformPointCloud(*src_cloud, *transformed, transform);
@@ -130,7 +134,9 @@ private:
     filtered = downsample(filtered);
     filtered = outlier_removal(filtered);
 
-    points_pub.publish(*filtered);
+    sensor_msgs::msg::PointCloud2 pc2;
+    pcl::toROSMsg(*filtered, pc2);
+    points_pub->publish(pc2);
   }
 
   pcl::PointCloud<PointT>::ConstPtr downsample(const pcl::PointCloud<PointT>::ConstPtr& cloud) const {
@@ -178,13 +184,13 @@ private:
   }
 
   pcl::PointCloud<PointT>::ConstPtr deskewing(const pcl::PointCloud<PointT>::ConstPtr& cloud) {
-    ros::Time stamp = pcl_conversions::fromPCL(cloud->header.stamp);
+    rclcpp::Time stamp = pcl_conversions::fromPCL(cloud->header.stamp);
     if(imu_queue.empty()) {
       return cloud;
     }
 
     // the color encodes the point number in the point sequence
-    if(colored_pub.getNumSubscribers()) {
+    if(colored_pub->get_subscription_count()) {
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored(new pcl::PointCloud<pcl::PointXYZRGB>());
       colored->header = cloud->header;
       colored->is_dense = cloud->is_dense;
@@ -192,22 +198,24 @@ private:
       colored->height = cloud->height;
       colored->resize(cloud->size());
 
-      for(int i = 0; i < cloud->size(); i++) {
+      for(size_t i = 0; i < cloud->size(); i++) {
         double t = static_cast<double>(i) / cloud->size();
         colored->at(i).getVector4fMap() = cloud->at(i).getVector4fMap();
         colored->at(i).r = 255 * t;
         colored->at(i).g = 128;
         colored->at(i).b = 255 * (1 - t);
       }
-      colored_pub.publish(*colored);
+      sensor_msgs::msg::PointCloud2 pc2;
+      pcl::toROSMsg(*colored, pc2);
+      colored_pub->publish(pc2);
     }
 
-    sensor_msgs::ImuConstPtr imu_msg = imu_queue.front();
+    sensor_msgs::msg::Imu::ConstSharedPtr imu_msg = imu_queue.front();
 
     auto loc = imu_queue.begin();
     for(; loc != imu_queue.end(); loc++) {
       imu_msg = (*loc);
-      if((*loc)->header.stamp > stamp) {
+      if(rclcpp::Time((*loc)->header.stamp) > stamp) {
         break;
       }
     }
@@ -224,8 +232,7 @@ private:
     deskewed->height = cloud->height;
     deskewed->resize(cloud->size());
 
-    double scan_period = private_nh.param<double>("scan_period", 0.1);
-    for(int i = 0; i < cloud->size(); i++) {
+    for(size_t i = 0; i < cloud->size(); i++) {
       const auto& pt = cloud->at(i);
 
       // TODO: transform IMU data into the LIDAR frame
@@ -257,6 +264,7 @@ private:
   bool use_distance_filter;
   double distance_near_thresh;
   double distance_far_thresh;
+  double scan_period;
 
   pcl::Filter<PointT>::Ptr downsample_filter;
   pcl::Filter<PointT>::Ptr outlier_removal_filter;
