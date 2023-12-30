@@ -10,9 +10,9 @@
 
 namespace hdl_graph_slam {
 
-KeyFrame::KeyFrame(const rclcpp::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud) : stamp(stamp), odom(odom), accum_distance(accum_distance), cloud(cloud), node(nullptr) {}
+KeyFrame::KeyFrame(const rclcpp::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud, rclcpp::Node::SharedPtr parent_node) : stamp(stamp), odom(odom), accum_distance(accum_distance), cloud(cloud), node(nullptr), rosnode(parent_node) {}
 
-KeyFrame::KeyFrame(const std::string& directory, g2o::HyperGraph* graph) : stamp(), odom(Eigen::Isometry3d::Identity()), accum_distance(-1), cloud(nullptr), node(nullptr) {
+KeyFrame::KeyFrame(const std::string& directory, g2o::HyperGraph* graph, rclcpp::Node::SharedPtr parent_node) : stamp(), odom(Eigen::Isometry3d::Identity()), accum_distance(-1), cloud(nullptr), node(nullptr), rosnode(parent_node) {
   load(directory, graph);
 }
 
@@ -119,19 +119,19 @@ bool KeyFrame::load(const std::string& directory, g2o::HyperGraph* graph) {
   }
 
   if(node_id < 0) {
-    RCLCPP_ERROR("invalid node id!!");
-    RCLCPP_ERROR(directory);
+    RCLCPP_ERROR(rosnode->get_logger(), "invalid node id!!");
+    RCLCPP_ERROR(rosnode->get_logger(), "%s", directory.c_str());
     return false;
   }
 
   if(graph->vertices().find(node_id) == graph->vertices().end()) {
-    RCLCPP_ERROR("vertex ID=" << node_id << " does not exist!!");
+    RCLCPP_ERROR(rosnode->get_logger(), "vertex ID = %ld does not exist!!", node_id);
     return false;
   }
 
   node = dynamic_cast<g2o::VertexSE3*>(graph->vertices()[node_id]);
   if(node == nullptr) {
-    RCLCPP_ERROR("failed to downcast!!");
+    RCLCPP_ERROR(rosnode->get_logger(), "failed to downcast!!");
     return false;
   }
 

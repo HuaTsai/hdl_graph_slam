@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <numeric>
+#include <iostream>
 #include <boost/algorithm/string.hpp>
 
 namespace hdl_graph_slam {
@@ -80,7 +81,7 @@ public:
   ~NmeaSentenceParser() {}
 
   GPRMC parse(const std::string& sentence) const {
-    int checksum_loc = sentence.find('*');
+    auto checksum_loc = sentence.find('*');
     if(checksum_loc == std::string::npos) {
       return GPRMC();
     }

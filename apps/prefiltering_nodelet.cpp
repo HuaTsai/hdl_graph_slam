@@ -102,8 +102,9 @@ private:
     imu_queue.push_back(imu_msg);
   }
 
-  void cloud_callback(const pcl::PointCloud<PointT>& src_cloud_r) {
-    pcl::PointCloud<PointT>::ConstPtr src_cloud = src_cloud_r.makeShared();
+  void cloud_callback(sensor_msgs::msg::PointCloud2::ConstSharedPtr src_cloud_r) {
+    pcl::PointCloud<PointT>::Ptr src_cloud(new pcl::PointCloud<PointT>);
+    pcl::fromROSMsg(*src_cloud_r, *src_cloud);
     if(src_cloud->empty()) {
       return;
     }
@@ -183,7 +184,7 @@ private:
     return filtered;
   }
 
-  pcl::PointCloud<PointT>::ConstPtr deskewing(const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+  pcl::PointCloud<PointT>::Ptr deskewing(pcl::PointCloud<PointT>::Ptr cloud) {
     rclcpp::Time stamp = pcl_conversions::fromPCL(cloud->header.stamp);
     if(imu_queue.empty()) {
       return cloud;

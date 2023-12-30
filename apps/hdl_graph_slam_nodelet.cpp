@@ -13,6 +13,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <pcl_conversions/pcl_conversions.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <geodesy/utm.h>
 #include <geodesy/wgs84.h>
@@ -191,7 +192,7 @@ private:
     }
 
     double accum_d = keyframe_updater->get_accum_distance();
-    KeyFrame::Ptr keyframe(new KeyFrame(stamp, odom, accum_d, cloud));
+    KeyFrame::Ptr keyframe(new KeyFrame(stamp, odom, accum_d, cloud, shared_from_this()));
 
     std::lock_guard<std::mutex> lock(keyframe_queue_mutex);
     keyframe_queue.push_back(keyframe);
@@ -381,7 +382,7 @@ private:
     return updated;
   }
 
-  void imu_callback(sensor_msgs::msg::Imu::SharedPtr& imu_msg) {
+  void imu_callback(sensor_msgs::msg::Imu::SharedPtr imu_msg) {
     if(!enable_imu_orientation && !enable_imu_acceleration) {
       return;
     }
@@ -587,7 +588,7 @@ private:
     }
 
     // loop detection
-    std::vector<Loop::Ptr> loops = loop_detector->detect(keyframes, new_keyframes, *graph_slam);
+    std::vector<Loop::Ptr> loops = loop_detector->detect(keyframes, new_keyframes);
     for(const auto& loop : loops) {
       Eigen::Isometry3d relpose(loop->relative_pose.cast<double>());
       Eigen::MatrixXd information_matrix = inf_calclator->calc_information_matrix(loop->key1->cloud, loop->key2->cloud, relpose);
@@ -868,7 +869,7 @@ private:
         break;
       }
 
-      KeyFrame::Ptr keyframe(new KeyFrame(key_frame_directory, graph_slam->graph.get()));
+      KeyFrame::Ptr keyframe(new KeyFrame(key_frame_directory, graph_slam->graph.get(), shared_from_this()));
       keyframes.push_back(keyframe);
     }
     std::cout << "loaded " << keyframes.size() << " keyframes" <<std::endl;

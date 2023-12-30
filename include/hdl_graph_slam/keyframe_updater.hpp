@@ -20,8 +20,8 @@ public:
    * @param pnh
    */
   KeyframeUpdater(rclcpp::Node::SharedPtr node) : is_first(true), prev_keypose(Eigen::Isometry3d::Identity()) {
-    keyframe_delta_trans = pnh.param<double>("keyframe_delta_trans", 2.0);
-    keyframe_delta_angle = pnh.param<double>("keyframe_delta_angle", 2.0);
+    keyframe_delta_trans = node->declare_parameter<double>("keyframe_delta_trans", 2.0);
+    keyframe_delta_angle = node->declare_parameter<double>("keyframe_delta_angle", 2.0);
 
     accum_distance = 0.0;
   }

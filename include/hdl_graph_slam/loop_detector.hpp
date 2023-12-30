@@ -55,11 +55,11 @@ public:
    * @param new_keyframes   newly registered keyframes
    * @param graph_slam      pose graph
    */
-  std::vector<Loop::Ptr> detect(const std::vector<KeyFrame::Ptr>& keyframes, const std::deque<KeyFrame::Ptr>& new_keyframes, hdl_graph_slam::GraphSLAM& graph_slam) {
+  std::vector<Loop::Ptr> detect(const std::vector<KeyFrame::Ptr>& keyframes, const std::deque<KeyFrame::Ptr>& new_keyframes) {
     std::vector<Loop::Ptr> detected_loops;
     for(const auto& new_keyframe : new_keyframes) {
       auto candidates = find_candidates(keyframes, new_keyframe);
-      auto loop = matching(candidates, new_keyframe, graph_slam);
+      auto loop = matching(candidates, new_keyframe);
       if(loop) {
         detected_loops.push_back(loop);
       }
@@ -115,7 +115,7 @@ private:
    * @param new_keyframe         loop end keyframe
    * @param graph_slam           graph slam
    */
-  Loop::Ptr matching(const std::vector<KeyFrame::Ptr>& candidate_keyframes, const KeyFrame::Ptr& new_keyframe, hdl_graph_slam::GraphSLAM& graph_slam) {
+  Loop::Ptr matching(const std::vector<KeyFrame::Ptr>& candidate_keyframes, const KeyFrame::Ptr& new_keyframe) {
     if(candidate_keyframes.empty()) {
       return nullptr;
     }

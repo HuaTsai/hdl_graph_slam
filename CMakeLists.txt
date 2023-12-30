@@ -10,8 +10,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_LIST_DIR}/cmake")
-
-# pcl 1.7 causes a segfault when it is built with debug mode
 set(CMAKE_BUILD_TYPE "RELEASE")
 
 find_package(ament_cmake REQUIRED)
@@ -29,11 +27,8 @@ find_package(geodesy REQUIRED)
 find_package(ndt_omp REQUIRED)
 find_package(fast_gicp REQUIRED)
 find_package(PCL 1.12 REQUIRED)
-find_package(rosidl_default_generators REQUIRED)
 find_package(G2O REQUIRED)
-# include_directories(SYSTEM ${G2O_INCLUDE_DIR} ${G2O_INCLUDE_DIRS})
-# link_directories(${G2O_LIBRARY_DIRS})
-# link_libraries(${G2O_LIBRARIES})
+find_package(rosidl_default_generators REQUIRED)
 
 set(dependencies
   rclcpp
@@ -103,21 +98,17 @@ add_executable(hdl_graph_slam_nodelet
   src/g2o/robust_kernel_io.cpp
 )
 ament_target_dependencies(hdl_graph_slam_nodelet ${dependencies})
-target_link_libraries(hdl_graph_slam_nodelet ${cpp_typesupport_target})
-
-# target_link_libraries(hdl_graph_slam_nodelet
-#   ${catkin_LIBRARIES}
-#   ${PCL_LIBRARIES}
-#   ${G2O_TYPES_DATA}
-#   ${G2O_CORE_LIBRARY}
-#   ${G2O_STUFF_LIBRARY}
-#   ${G2O_SOLVER_PCG}
-#   ${G2O_SOLVER_CSPARSE}   # be aware of that CSPARSE is released under LGPL
-#   ${G2O_SOLVER_CHOLMOD}   # be aware of that cholmod is released under GPL
-#   ${G2O_TYPES_SLAM3D}
-#   ${G2O_TYPES_SLAM3D_ADDONS}
-# )
-# add_dependencies(hdl_graph_slam_nodelet ${PROJECT_NAME}_gencpp)
+target_link_libraries(hdl_graph_slam_nodelet
+  ${cpp_typesupport_target}
+  ${G2O_TYPES_DATA}
+  ${G2O_CORE_LIBRARY}
+  ${G2O_STUFF_LIBRARY}
+  ${G2O_SOLVER_PCG}
+  ${G2O_SOLVER_CSPARSE}   # be aware of that CSPARSE is released under LGPL
+  ${G2O_SOLVER_CHOLMOD}   # be aware of that cholmod is released under GPL
+  ${G2O_TYPES_SLAM3D}
+  ${G2O_TYPES_SLAM3D_ADDONS}
+)
 
 install(TARGETS
   prefiltering_nodelet
