@@ -43,7 +43,8 @@ public:
     distance_from_last_edge_thresh = node->declare_parameter("min_edge_interval", 5.0);
 
     fitness_score_max_range = node->declare_parameter("fitness_score_max_range", std::numeric_limits<double>::max());
-    fitness_score_thresh = node->declare_parameter("fitness_score_thresh", 0.5);
+    if (!parent_node->has_parameter("fitness_score_thresh"))
+      fitness_score_thresh = node->declare_parameter("fitness_score_thresh", 0.5);
 
     registration = select_registration_method(node);
     last_edge_accum_distance = 0.0;

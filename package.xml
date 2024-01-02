@@ -19,7 +19,6 @@
   <depend>pcl_conversions</depend>
   <depend>ndt_omp</depend>
   <depend>fast_gicp</depend>
-  <depend>PCL</depend>
 
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
   <exec_depend>rosidl_default_runtime</exec_depend>

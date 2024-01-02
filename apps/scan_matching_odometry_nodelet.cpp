@@ -39,6 +39,7 @@ public:
 
     tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
+    tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     if(enable_imu_frontend) {
       std::function<void(geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr)> cbf = std::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, std::placeholders::_1, false);
@@ -245,7 +246,7 @@ private:
     prev_trans = trans;
 
     auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
-    keyframe_broadcaster->sendTransform(keyframe_trans);
+    tf_broadcaster->sendTransform(keyframe_trans);
 
     double delta_trans = trans.block<3, 1>(0, 3).norm();
     double delta_angle = std::acos(Eigen::Quaternionf(trans.block<3, 3>(0, 0)).w());
@@ -283,7 +284,7 @@ private:
     trans_pub->publish(odom_trans);
 
     // broadcast the transform over tf
-    odom_broadcaster->sendTransform(odom_trans);
+    tf_broadcaster->sendTransform(odom_trans);
 
     // publish the transform
     nav_msgs::msg::Odometry odom;
@@ -359,8 +360,7 @@ private:
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener;
-  std::shared_ptr<tf2_ros::TransformBroadcaster> odom_broadcaster;
-  std::shared_ptr<tf2_ros::TransformBroadcaster> keyframe_broadcaster;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
   bool enable_imu_frontend;
   bool enable_robot_odometry_init_guess;

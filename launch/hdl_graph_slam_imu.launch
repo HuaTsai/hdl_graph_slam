@@ -11,29 +11,26 @@
   <arg name="imu_topic" default="/imu/data" />
 
   <!-- transformation between lidar and base_link -->
-  <node pkg="tf" type="static_transform_publisher" name="lidar2base_publisher" args="0 0 0 0 0 0 base_link velodyne 10" />
-  <node pkg="tf" type="static_transform_publisher" name="state2base_publisher" args="0 0 0 0 0 0 odom world 10" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="lidar2base_publisher" args="--x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 --frame-id base_link --child-frame-id velodyne" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="state2base_publisher" args="--x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 --frame-id odom --child-frame-id world" />
 
-  <!-- in case you use velodyne_driver, comment out the following line -->
-  <node pkg="nodelet" type="nodelet" name="$(arg nodelet_manager)" args="manager" output="screen"/>
+  <!-- IMU fusion: No msf_updates available for ROS2 -->
+  <!-- <node name="msf_lidar_scan_matching" pkg="msf_updates" exec="pose_sensor" clear_params="true" output="screen"> -->
+  <!--   <remap from="msf_core/hl_state_input" to="/fcu/ekf_state_out" /> -->
+  <!--   <remap from="msf_core/correction" to="/fcu/ekf_state_in" /> -->
+  <!--   <remap from="msf_core/imu_state_input" to="$(var imu_topic)" /> -->
+  <!--   <remap from="msf_updates/transform_input" to="/scan_matching_odometry/transform" /> -->
+  <!---->
+  <!--   <rosparam file="$(find hdl_graph_slam)/launch/msf_config.yaml"/> -->
+  <!-- </node> -->
 
-  <!-- IMU fusion -->
-  <node name="msf_lidar_scan_matching" pkg="msf_updates" type="pose_sensor" clear_params="true" output="screen">
-    <remap from="msf_core/hl_state_input" to="/fcu/ekf_state_out" />
-    <remap from="msf_core/correction" to="/fcu/ekf_state_in" />
-    <remap from="msf_core/imu_state_input" to="$(arg imu_topic)" />
-    <remap from="msf_updates/transform_input" to="/scan_matching_odometry/transform" />
-
-    <rosparam file="$(find hdl_graph_slam)/launch/msf_config.yaml"/>
-  </node>
-
-  <node pkg="rosservice" type="rosservice" name="initialize" args="call --wait /msf_lidar_scan_matching/pose_sensor/initialize_msf_scale 1"/>
+  <!-- <node pkg="rosservice" exec="rosservice" name="initialize" args="call - -wait /msf_lidar_scan_matching/pose_sensor/initialize_msf_scale 1"/> -->
 
   <!-- prefiltering_nodelet -->
-  <node pkg="nodelet" type="nodelet" name="prefiltering_nodelet" args="load hdl_graph_slam/PrefilteringNodelet $(arg nodelet_manager)" output="screen">
-    <remap from="/velodyne_points" to="$(arg points_topic)" />
-    <remap from="/imu/data" to="$(arg imu_topic)" />
-    <param name="deskewing" value="$(arg enable_imu_frontend)" />
+  <node pkg="hdl_graph_slam" exec="prefiltering_nodelet" name="prefiltering_nodelet">
+    <remap from="/velodyne_points" to="$(var points_topic)" />
+    <remap from="/imu/data" to="$(var imu_topic)" />
+    <param name="deskewing" value="$(var enable_imu_frontend)" />
     <param name="scan_period" value="0.1" />
     <!-- in case base_link_frame is blank, mapping will be performed in the lidar frame -->
     <param name="base_link_frame" value="base_link" />
@@ -53,9 +50,9 @@
   </node>
 
   <!-- scan_matching_odometry_nodelet -->
-  <node pkg="nodelet" type="nodelet" name="scan_matching_odometry_nodelet" args="load hdl_graph_slam/ScanMatchingOdometryNodelet $(arg nodelet_manager)">
-    <param name="enable_imu_frontend" value="$(arg enable_imu_frontend)" />
-    <param name="points_topic" value="$(arg points_topic)" />
+  <node pkg="hdl_graph_slam" exec="scan_matching_odometry_nodelet" name="scan_matching_odometry_nodelet">
+    <param name="enable_imu_frontend" value="$(var enable_imu_frontend)" />
+    <param name="points_topic" value="$(var points_topic)" />
     <param name="odom_frame_id" value="odom" />
     <param name="keyframe_delta_trans" value="0.25" />
     <param name="keyframe_delta_angle" value="2.0" />
@@ -78,8 +75,8 @@
   </node>
 
   <!-- floor_detection_nodelet -->
-  <node pkg="nodelet" type="nodelet" name="floor_detection_nodelet" args="load hdl_graph_slam/FloorDetectionNodelet $(arg nodelet_manager)" if="$(arg enable_floor_detection)">
-    <param name="points_topic" value="$(arg points_topic)" />
+  <node pkg="hdl_graph_slam" exec="floor_detection_nodelet" name="floor_detection_nodelet" if="$(var enable_floor_detection)">
+    <param name="points_topic" value="$(var points_topic)" />
     <param name="tilt_deg" value="0.0" />
     <param name="sensor_height" value="1.5" />
     <param name="height_clip_range" value="0.5" />
@@ -89,9 +86,9 @@
   </node>
 
   <!-- hdl_graph_slam_nodelet -->
-  <node pkg="nodelet" type="nodelet" name="hdl_graph_slam_nodelet" args="load hdl_graph_slam/HdlGraphSlamNodelet $(arg nodelet_manager)">
-    <param name="points_topic" value="$(arg points_topic)" />
-    <remap from="/gpsimu_driver/imu_data" to="$(arg imu_topic)" />
+  <node pkg="hdl_graph_slam" exec="hdl_graph_slam_nodelet" name="hdl_graph_slam_nodelet">
+    <param name="points_topic" value="$(var points_topic)" />
+    <remap from="/gpsimu_driver/imu_data" to="$(var imu_topic)" />
     <!-- frame settings -->
     <param name="map_frame_id" value="map" />
     <param name="odom_frame_id" value="odom" />
@@ -100,9 +97,9 @@
     <param name="g2o_solver_type" value="lm_var_cholmod" />
     <param name="g2o_solver_num_iterations" value="512" />
     <!-- constraint switches -->
-    <param name="enable_gps" value="$(arg enable_gps)" />
-    <param name="enable_imu_acceleration" value="$(arg enable_imu_acc)" />
-    <param name="enable_imu_orientation" value="$(arg enable_imu_ori)" />
+    <param name="enable_gps" value="$(var enable_gps)" />
+    <param name="enable_imu_acceleration" value="$(var enable_imu_acc)" />
+    <param name="enable_imu_orientation" value="$(var enable_imu_ori)" />
     <!-- keyframe registration params -->
     <param name="max_keyframes_per_update" value="10" />
     <param name="keyframe_delta_trans" value="1.0" />
@@ -156,5 +153,5 @@
     <param name="map_cloud_resolution" value="0.01" />
   </node>
 
-  <node pkg="hdl_graph_slam" type="map2odom_publisher.py" name="map2odom_publisher" />
+  <!-- <node pkg="hdl_graph_slam" exec="map2odom_publisher.py" name="map2odom_publisher" /> -->
 </launch>

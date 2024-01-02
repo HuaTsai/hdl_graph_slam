@@ -17,7 +17,8 @@ InformationMatrixCalculator::InformationMatrixCalculator(rclcpp::Node::SharedPtr
   max_stddev_x = parent_node->declare_parameter<double>("max_stddev_x", 5.0);
   min_stddev_q = parent_node->declare_parameter<double>("min_stddev_q", 0.05);
   max_stddev_q = parent_node->declare_parameter<double>("max_stddev_q", 0.2);
-  fitness_score_thresh = parent_node->declare_parameter<double>("fitness_score_thresh", 0.5);
+  if (!parent_node->has_parameter("fitness_score_thresh"))
+    fitness_score_thresh = parent_node->declare_parameter<double>("fitness_score_thresh", 0.5);
 }
 
 InformationMatrixCalculator::~InformationMatrixCalculator() {}
