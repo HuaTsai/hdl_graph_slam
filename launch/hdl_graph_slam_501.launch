@@ -21,6 +21,7 @@
 
   <!-- prefiltering_nodelet -->
   <node pkg="hdl_graph_slam" exec="prefiltering_nodelet" name="prefiltering_nodelet">
+    <param name="use_sim_time" value="true" />
     <remap from="/velodyne_points" to="$(var points_topic)" />
     <!-- in case base_link_frame is blank, mapping will be performed in the lidar frame -->
     <param name="base_link_frame" value="base_link" />
@@ -41,6 +42,7 @@
 
   <!-- scan_matching_odometry_nodelet -->
   <node pkg="hdl_graph_slam" exec="scan_matching_odometry_nodelet" name="scan_matching_odometry_nodelet">
+    <param name="use_sim_time" value="true" />
     <param name="points_topic" value="$(var points_topic)" />
     <param name="odom_frame_id" value="$(var lidar_odom_frame_id)" />
     <param name="robot_odom_frame_id" value="$(var robot_odom_frame_id)" />
@@ -68,6 +70,7 @@
 
   <!-- floor_detection_nodelet -->
   <node pkg="hdl_graph_slam" exec="floor_detection_nodelet" name="floor_detection_nodelet" if="$(var enable_floor_detection)">
+    <param name="use_sim_time" value="true" />
     <param name="points_topic" value="$(var points_topic)" />
     <param name="tilt_deg" value="0.0" />
     <param name="sensor_height" value="1.5" />
@@ -79,6 +82,7 @@
 
   <!-- hdl_graph_slam_nodelet -->
   <node pkg="hdl_graph_slam" exec="hdl_graph_slam_nodelet" name="hdl_graph_slam_nodelet">
+    <param name="use_sim_time" value="true" />
     <param name="points_topic" value="$(var points_topic)" />
     <!-- frame settings -->
     <param name="map_frame_id" value="$(var map_frame_id)" />

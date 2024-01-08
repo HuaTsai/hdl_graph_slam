@@ -22,6 +22,7 @@
 #include <message_filters/sync_policies/approximate_time.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_ros/transform_broadcaster.h>
 
 #include <std_msgs/msg/header.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -70,6 +71,7 @@ public:
   void onInit() {
     tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
+    tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);
 
     // init parameters
     published_odom_topic = this->declare_parameter<std::string>("published_odom_topic", "/odom");
@@ -142,7 +144,7 @@ public:
     rclcpp::QoS qos(rclcpp::KeepLast(1));
     qos.transient_local();
     markers_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>("hdl_graph_slam/markers", 16);
-    odom2map_pub = this->create_publisher<geometry_msgs::msg::TransformStamped>("hdl_graph_slam/odom2pub", 16);
+    // odom2map_pub = this->create_publisher<geometry_msgs::msg::TransformStamped>("hdl_graph_slam/odom2pub", 16);
     map_points_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("hdl_graph_slam/map_points", qos);
     read_until_pub = this->create_publisher<std_msgs::msg::Header>("hdl_graph_slam/read_until", 32);
 
@@ -624,10 +626,10 @@ private:
     keyframes_snapshot_mutex.unlock();
     graph_updated = true;
 
-    if(odom2map_pub->get_subscription_count()) {
-      geometry_msgs::msg::TransformStamped ts = matrix2transform(keyframe->stamp, trans.matrix().cast<float>(), map_frame_id, odom_frame_id);
-      odom2map_pub->publish(ts);
-    }
+    // if(odom2map_pub->get_subscription_count()) {
+    geometry_msgs::msg::TransformStamped ts = matrix2transform(keyframe->stamp, trans.matrix().cast<float>(), map_frame_id, odom_frame_id);
+    tf_broadcaster->sendTransform(ts);
+    // }
 
     if(markers_pub->get_subscription_count()) {
       auto markers = create_marker_array(now());
@@ -1065,7 +1067,7 @@ private:
 
   std::mutex trans_odom2map_mutex;
   Eigen::Matrix4f trans_odom2map;
-  rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr odom2map_pub;
+  // rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr odom2map_pub;
 
   std::string points_topic;
   rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr read_until_pub;
@@ -1073,6 +1075,7 @@ private:
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
   rclcpp::Service<hdl_graph_slam::srv::LoadGraph>::SharedPtr load_service_server;
   rclcpp::Service<hdl_graph_slam::srv::DumpGraph>::SharedPtr dump_service_server;
