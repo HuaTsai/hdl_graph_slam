@@ -6,7 +6,7 @@ set(CMAKE_BUILD_TYPE RELEASE)
 set(CMAKE_CXX_STANDARD 17)
 
 if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "x86_64")
-  set(CMAKE_CXX_FLAGS "msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2")
+  set(CMAKE_CXX_FLAGS "-msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2")
 elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
   set(CMAKE_CXX_FLAGS "-march=native")
 endif()
