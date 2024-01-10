@@ -15,7 +15,7 @@
   <arg name="robot_odom_frame_id" default="robot_odom" />
 
   <!-- transformation between lidar and base_link -->
-  <node pkg="tf2_ros" exec="static_transform_publisher" name="lidar2base_publisher" args="--x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 --frame-id base_link --child-frame-id velodyne" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="lidar2base_publisher" args="0 0 0 0 0 0 1 base_link velodyne" />
 
   <!-- prefiltering_nodelet -->
   <node pkg="hdl_graph_slam" exec="prefiltering_nodelet" name="prefiltering_nodelet">
