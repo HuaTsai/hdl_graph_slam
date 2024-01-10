@@ -4,7 +4,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <pcl_conversions/pcl_conversions.h>
-#include <tf2_eigen/tf2_eigen.hpp>
+#include <tf2_eigen/tf2_eigen.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -43,9 +43,9 @@ public:
 
     if(enable_imu_frontend) {
       std::function<void(geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr)> cbf = std::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, std::placeholders::_1, false);
-      msf_pose_sub = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr>("msf_core/pose", 1, cbf);
+      msf_pose_sub = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("msf_core/pose", 1, cbf);
       std::function<void(geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr)> cbt = std::bind(&ScanMatchingOdometryNodelet::msf_pose_callback, this, std::placeholders::_1, true);
-      msf_pose_after_update_sub = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr>("msf_core/pose_after_update", 1, cbt);
+      msf_pose_after_update_sub = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("msf_core/pose_after_update", 1, cbt);
     }
 
     points_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_points", 256, std::bind(&ScanMatchingOdometryNodelet::cloud_callback, this, std::placeholders::_1));
@@ -350,8 +350,8 @@ private:
   // ROS topics
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub;
-  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr>::SharedPtr msf_pose_sub;
-  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr>::SharedPtr msf_pose_after_update_sub;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr msf_pose_sub;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr msf_pose_after_update_sub;
 
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub;
   rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr trans_pub;
