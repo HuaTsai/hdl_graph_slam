@@ -154,5 +154,6 @@
     <param name="map_cloud_resolution" value="0.01" />
   </node>
 
+  <node pkg="rviz2" exec="rviz2" name="rviz2" args="-d $(find-pkg-share hdl_graph_slam)/rviz/hdl_graph_slam_501.rviz" />
   <!-- <node pkg="hdl_graph_slam" type="map2odom_publisher.py" name="map2odom_publisher" /> -->
 </launch>
