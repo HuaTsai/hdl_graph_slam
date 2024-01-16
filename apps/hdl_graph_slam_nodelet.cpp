@@ -1151,8 +1151,6 @@ private:
 };
 }  // namespace hdl_graph_slam
 
-int main(int argc, char **argv) {
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<hdl_graph_slam::HdlGraphSlamNodelet>());
-  rclcpp::shutdown();
-}
+#include <rclcpp_components/register_node_macro.hpp>
+RCLCPP_COMPONENTS_REGISTER_NODE(hdl_graph_slam::HdlGraphSlamNodelet)
+

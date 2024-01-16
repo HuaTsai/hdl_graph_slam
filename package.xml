@@ -10,6 +10,7 @@
   <license>BSD</license>
 
   <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
   <depend>std_srvs</depend>
   <depend>nmea_msgs</depend>
   <depend>tf2_ros</depend>

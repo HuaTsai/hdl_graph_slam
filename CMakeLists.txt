@@ -19,6 +19,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(nmea_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -37,6 +38,7 @@ find_package(rosidl_default_generators REQUIRED)
 
 set(dependencies
   rclcpp
+  rclcpp_components
   std_srvs
   nmea_msgs
   nav_msgs
@@ -80,37 +82,37 @@ endif()
 
 include_directories(include)
 
-# nodelets
-add_executable(prefiltering_nodelet apps/prefiltering_nodelet.cpp)
+function(link_typesupport target)
+  if ($ENV{ROS_DISTRO} STREQUAL "humble")
+    target_link_libraries(${target} ${cpp_typesupport_target})
+  else()
+    rosidl_target_interfaces(${target} ${PROJECT_NAME} "rosidl_typesupport_cpp")
+  endif()
+endfunction()
+
+# Prefiltering Component
+add_library(prefiltering_nodelet SHARED apps/prefiltering_nodelet.cpp)
 ament_target_dependencies(prefiltering_nodelet ${dependencies})
-if ($ENV{ROS_DISTRO} STREQUAL "humble")
-  target_link_libraries(prefiltering_nodelet ${cpp_typesupport_target})
-else()
-  rosidl_target_interfaces(prefiltering_nodelet ${PROJECT_NAME} "rosidl_typesupport_cpp")
-endif()
+link_typesupport(prefiltering_nodelet)
+rclcpp_components_register_nodes(prefiltering_nodelet hdl_graph_slam::PrefilteringNodelet)
 
-add_executable(floor_detection_nodelet apps/floor_detection_nodelet.cpp)
+# Floor Detection Component
+add_library(floor_detection_nodelet SHARED apps/floor_detection_nodelet.cpp)
 ament_target_dependencies(floor_detection_nodelet ${dependencies})
+link_typesupport(floor_detection_nodelet)
+rclcpp_components_register_nodes(floor_detection_nodelet hdl_graph_slam::FloorDetectionNodelet)
 
-if ($ENV{ROS_DISTRO} STREQUAL "humble")
-  target_link_libraries(floor_detection_nodelet ${cpp_typesupport_target})
-else()
-  rosidl_target_interfaces(floor_detection_nodelet ${PROJECT_NAME} "rosidl_typesupport_cpp")
-endif()
-
-add_executable(scan_matching_odometry_nodelet
+# Scan Matching Odometry Component
+add_library(scan_matching_odometry_nodelet SHARED
   apps/scan_matching_odometry_nodelet.cpp
   src/hdl_graph_slam/registrations.cpp
 )
 ament_target_dependencies(scan_matching_odometry_nodelet ${dependencies})
+link_typesupport(scan_matching_odometry_nodelet)
+rclcpp_components_register_nodes(scan_matching_odometry_nodelet hdl_graph_slam::ScanMatchingOdometryNodelet)
 
-if ($ENV{ROS_DISTRO} STREQUAL "humble")
-  target_link_libraries(scan_matching_odometry_nodelet ${cpp_typesupport_target})
-else()
-  rosidl_target_interfaces(scan_matching_odometry_nodelet ${PROJECT_NAME} "rosidl_typesupport_cpp")
-endif()
-
-add_executable(hdl_graph_slam_nodelet
+# HDL Graph SLAM Component
+add_library(hdl_graph_slam_nodelet SHARED
   apps/hdl_graph_slam_nodelet.cpp
   src/hdl_graph_slam/graph_slam.cpp
   src/hdl_graph_slam/keyframe.cpp
@@ -120,13 +122,7 @@ add_executable(hdl_graph_slam_nodelet
   src/g2o/robust_kernel_io.cpp
 )
 ament_target_dependencies(hdl_graph_slam_nodelet ${dependencies})
-
-if ($ENV{ROS_DISTRO} STREQUAL "humble")
-  target_link_libraries(hdl_graph_slam_nodelet ${cpp_typesupport_target})
-else()
-  rosidl_target_interfaces(hdl_graph_slam_nodelet ${PROJECT_NAME} "rosidl_typesupport_cpp")
-endif()
-
+link_typesupport(hdl_graph_slam_nodelet)
 target_link_libraries(hdl_graph_slam_nodelet
   ${G2O_TYPES_DATA}
   ${G2O_CORE_LIBRARY}
@@ -137,13 +133,17 @@ target_link_libraries(hdl_graph_slam_nodelet
   ${G2O_TYPES_SLAM3D}
   ${G2O_TYPES_SLAM3D_ADDONS}
 )
+rclcpp_components_register_nodes(hdl_graph_slam_nodelet hdl_graph_slam::HdlGraphSlamNodelet)
 
-install(TARGETS
-  prefiltering_nodelet
-  floor_detection_nodelet
-  scan_matching_odometry_nodelet
-  hdl_graph_slam_nodelet
-  DESTINATION lib/${PROJECT_NAME}
+install(
+  TARGETS
+    prefiltering_nodelet
+    floor_detection_nodelet
+    scan_matching_odometry_nodelet
+    hdl_graph_slam_nodelet
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
 install(
