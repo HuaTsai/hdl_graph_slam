@@ -65,10 +65,7 @@ public:
   using PointT = pcl::PointXYZI;
   using ApproxSyncPolicy = message_filters::sync_policies::ApproximateTime<nav_msgs::msg::Odometry, sensor_msgs::msg::PointCloud2>;
 
-  HdlGraphSlamNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("hdl_graph_slam", options) {}
-  virtual ~HdlGraphSlamNodelet() {}
-
-  void onInit() {
+  HdlGraphSlamNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("hdl_graph_slam", options) {
     tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
     tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(this);
@@ -1156,8 +1153,6 @@ private:
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<hdl_graph_slam::HdlGraphSlamNodelet>();
-  node->onInit();
-  rclcpp::spin(node);
+  rclcpp::spin(std::make_shared<hdl_graph_slam::HdlGraphSlamNodelet>());
   rclcpp::shutdown();
 }

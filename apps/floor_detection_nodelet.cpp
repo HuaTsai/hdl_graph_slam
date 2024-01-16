@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
-#include "hdl_graph_slam/msg/detail/floor_coeffs__struct.hpp"
-#include <rclcpp/duration.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
@@ -21,10 +19,7 @@ public:
   using PointT = pcl::PointXYZI;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  FloorDetectionNodelet() : Node("floor_detection_nodelet") {}
-  virtual ~FloorDetectionNodelet() {}
-
-  virtual void onInit() {
+  FloorDetectionNodelet(const rclcpp::NodeOptions options = rclcpp::NodeOptions()) : Node("floor_detection_nodelet", options) {
     RCLCPP_DEBUG(this->get_logger(), "initializing floor_detection_nodelet...");
 
     initialize_params();

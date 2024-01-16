@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
-#include <sensor_msgs/msg/detail/point_cloud2__struct.hpp>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
 #include <pcl_ros/transforms.hpp>
-// #include <pcl_ros/point_cloud.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -26,9 +24,7 @@ class PrefilteringNodelet : public rclcpp::Node {
 public:
   using PointT = pcl::PointXYZI;
 
-  PrefilteringNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("prefiltering_nodelet", options) {}
-
-  void onInit() {
+  PrefilteringNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("prefiltering_nodelet", options) {
     initialize_params();
 
     tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -275,8 +271,6 @@ private:
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<hdl_graph_slam::PrefilteringNodelet>();
-  node->onInit();
-  rclcpp::spin(node);
+  rclcpp::spin(std::make_shared<hdl_graph_slam::PrefilteringNodelet>());
   rclcpp::shutdown();
 }

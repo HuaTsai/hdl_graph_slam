@@ -30,9 +30,7 @@ public:
   using PointT = pcl::PointXYZI;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  ScanMatchingOdometryNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("scan_matching_odometry_nodelet", options) {}
-
-  void onInit() {
+  ScanMatchingOdometryNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("scan_matching_odometry_nodelet", options) {
     RCLCPP_DEBUG(this->get_logger(), "initializing scan_matching_odometry_nodelet...");
 
     initialize_params();
@@ -399,8 +397,6 @@ private:
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<hdl_graph_slam::ScanMatchingOdometryNodelet>();
-  node->onInit();
-  rclcpp::spin(node);
+  rclcpp::spin(std::make_shared<hdl_graph_slam::ScanMatchingOdometryNodelet>());
   rclcpp::shutdown();
 }
