@@ -2,8 +2,14 @@
 cmake_minimum_required(VERSION 3.8)
 project(hdl_graph_slam)
 
-set(CMAKE_CXX_FLAGS "-std=c++17 -msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2")
 set(CMAKE_BUILD_TYPE RELEASE)
+set(CMAKE_CXX_STANDARD 17)
+
+if (${CMAKE_SYSTEM_PROCESSOR} MATCHES "x86_64")
+  set(CMAKE_CXX_FLAGS "-msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2")
+elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
+  set(CMAKE_CXX_FLAGS "-march=native")
+endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -25,7 +31,7 @@ find_package(pcl_conversions REQUIRED)
 find_package(geodesy REQUIRED)
 find_package(ndt_omp REQUIRED)
 find_package(fast_gicp REQUIRED)
-find_package(PCL 1.12 REQUIRED)
+find_package(PCL REQUIRED)
 find_package(G2O REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
@@ -67,25 +73,42 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/DumpGraph.srv
   DEPENDENCIES std_msgs geometry_msgs
 )
-rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
+
+if ($ENV{ROS_DISTRO} STREQUAL "humble")
+  rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
+endif()
 
 include_directories(include)
 
 # nodelets
 add_executable(prefiltering_nodelet apps/prefiltering_nodelet.cpp)
 ament_target_dependencies(prefiltering_nodelet ${dependencies})
-target_link_libraries(prefiltering_nodelet ${cpp_typesupport_target})
+if ($ENV{ROS_DISTRO} STREQUAL "humble")
+  target_link_libraries(prefiltering_nodelet ${cpp_typesupport_target})
+else()
+  rosidl_target_interfaces(prefiltering_nodelet ${PROJECT_NAME} "rosidl_typesupport_cpp")
+endif()
 
 add_executable(floor_detection_nodelet apps/floor_detection_nodelet.cpp)
 ament_target_dependencies(floor_detection_nodelet ${dependencies})
-target_link_libraries(floor_detection_nodelet ${cpp_typesupport_target})
+
+if ($ENV{ROS_DISTRO} STREQUAL "humble")
+  target_link_libraries(floor_detection_nodelet ${cpp_typesupport_target})
+else()
+  rosidl_target_interfaces(floor_detection_nodelet ${PROJECT_NAME} "rosidl_typesupport_cpp")
+endif()
 
 add_executable(scan_matching_odometry_nodelet
   apps/scan_matching_odometry_nodelet.cpp
   src/hdl_graph_slam/registrations.cpp
 )
 ament_target_dependencies(scan_matching_odometry_nodelet ${dependencies})
-target_link_libraries(scan_matching_odometry_nodelet ${cpp_typesupport_target})
+
+if ($ENV{ROS_DISTRO} STREQUAL "humble")
+  target_link_libraries(scan_matching_odometry_nodelet ${cpp_typesupport_target})
+else()
+  rosidl_target_interfaces(scan_matching_odometry_nodelet ${PROJECT_NAME} "rosidl_typesupport_cpp")
+endif()
 
 add_executable(hdl_graph_slam_nodelet
   apps/hdl_graph_slam_nodelet.cpp
@@ -97,8 +120,14 @@ add_executable(hdl_graph_slam_nodelet
   src/g2o/robust_kernel_io.cpp
 )
 ament_target_dependencies(hdl_graph_slam_nodelet ${dependencies})
+
+if ($ENV{ROS_DISTRO} STREQUAL "humble")
+  target_link_libraries(hdl_graph_slam_nodelet ${cpp_typesupport_target})
+else()
+  rosidl_target_interfaces(hdl_graph_slam_nodelet ${PROJECT_NAME} "rosidl_typesupport_cpp")
+endif()
+
 target_link_libraries(hdl_graph_slam_nodelet
-  ${cpp_typesupport_target}
   ${G2O_TYPES_DATA}
   ${G2O_CORE_LIBRARY}
   ${G2O_STUFF_LIBRARY}

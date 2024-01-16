@@ -11,8 +11,8 @@
   <arg name="imu_topic" default="/imu/data" />
 
   <!-- transformation between lidar and base_link -->
-  <node pkg="tf2_ros" exec="static_transform_publisher" name="lidar2base_publisher" args="--x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 --frame-id base_link --child-frame-id velodyne" />
-  <node pkg="tf2_ros" exec="static_transform_publisher" name="state2base_publisher" args="--x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 --frame-id odom --child-frame-id world" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="lidar2base_publisher" args="0 0 0 0 0 0 1 base_link velodyne" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="state2base_publisher" args="0 0 0 0 0 0 1 odom world" />
 
   <!-- IMU fusion: No msf_updates available for ROS2 -->
   <!-- <node name="msf_lidar_scan_matching" pkg="msf_updates" exec="pose_sensor" clear_params="true" output="screen"> -->

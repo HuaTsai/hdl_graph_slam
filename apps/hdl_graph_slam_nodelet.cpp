@@ -13,8 +13,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <pcl_conversions/pcl_conversions.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include <tf2_eigen/tf2_eigen.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_eigen/tf2_eigen.h>
 #include <geodesy/utm.h>
 #include <geodesy/wgs84.h>
 #include <message_filters/subscriber.h>
@@ -841,7 +841,7 @@ private:
    * @param res
    * @return
    */
-  bool load_service(hdl_graph_slam::srv::LoadGraph::Request::ConstSharedPtr req,
+  bool load_service(const hdl_graph_slam::srv::LoadGraph::Request::SharedPtr req,
                     hdl_graph_slam::srv::LoadGraph::Response::SharedPtr res) {
     std::lock_guard<std::mutex> lock(main_thread_mutex);
 
@@ -956,7 +956,7 @@ private:
    * @param res
    * @return
    */
-  bool dump_service(hdl_graph_slam::srv::DumpGraph::Request::ConstSharedPtr req,
+  bool dump_service(const hdl_graph_slam::srv::DumpGraph::Request::SharedPtr req,
                     hdl_graph_slam::srv::DumpGraph::Response::SharedPtr res) {
     std::lock_guard<std::mutex> lock(main_thread_mutex);
 
@@ -1007,7 +1007,7 @@ private:
    * @param res
    * @return
    */
-  bool save_map_service(hdl_graph_slam::srv::SaveMap::Request::ConstSharedPtr req,
+  bool save_map_service(const hdl_graph_slam::srv::SaveMap::Request::SharedPtr req,
                         hdl_graph_slam::srv::SaveMap::Response::SharedPtr res) {
     std::vector<KeyFrameSnapshot::Ptr> snapshot;
 
