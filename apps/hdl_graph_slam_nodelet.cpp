@@ -106,10 +106,10 @@ public:
     anchor_edge = nullptr;
     floor_plane_node = nullptr;
     graph_slam.reset(new GraphSLAM(g2o_solver_type));
-    keyframe_updater.reset(new KeyframeUpdater(shared_from_this()));
-    loop_detector.reset(new LoopDetector(shared_from_this()));
+    keyframe_updater.reset(new KeyframeUpdater(this));
+    loop_detector.reset(new LoopDetector(this));
     map_cloud_generator.reset(new MapCloudGenerator());
-    inf_calclator.reset(new InformationMatrixCalculator(shared_from_this()));
+    inf_calclator.reset(new InformationMatrixCalculator(this));
     nmea_parser.reset(new NmeaSentenceParser());
 
     gps_time_offset = this->declare_parameter<double>("gps_time_offset", 0.0);
@@ -126,8 +126,8 @@ public:
     points_topic = this->declare_parameter<std::string>("points_topic", "/velodyne_points");
 
     // subscribers
-    odom_sub.reset(new message_filters::Subscriber<nav_msgs::msg::Odometry>(shared_from_this(), published_odom_topic, rclcpp::QoS(256).get_rmw_qos_profile()));
-    cloud_sub.reset(new message_filters::Subscriber<sensor_msgs::msg::PointCloud2>(shared_from_this(), "/filtered_points", rclcpp::QoS(32).get_rmw_qos_profile()));
+    odom_sub.reset(new message_filters::Subscriber<nav_msgs::msg::Odometry>(this, published_odom_topic, rclcpp::QoS(256).get_rmw_qos_profile()));
+    cloud_sub.reset(new message_filters::Subscriber<sensor_msgs::msg::PointCloud2>(this, "/filtered_points", rclcpp::QoS(32).get_rmw_qos_profile()));
     sync.reset(new message_filters::Synchronizer<ApproxSyncPolicy>(ApproxSyncPolicy(32), *odom_sub, *cloud_sub));
     sync->registerCallback(std::bind(&HdlGraphSlamNodelet::cloud_callback, this, std::placeholders::_1, std::placeholders::_2));
     imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("gpsimu_driver/imu_data", 1024, std::bind(&HdlGraphSlamNodelet::imu_callback, this, std::placeholders::_1));
@@ -194,7 +194,7 @@ private:
     }
 
     double accum_d = keyframe_updater->get_accum_distance();
-    KeyFrame::Ptr keyframe(new KeyFrame(stamp, odom, accum_d, cloud, shared_from_this()));
+    KeyFrame::Ptr keyframe(new KeyFrame(stamp, odom, accum_d, cloud, this));
 
     std::lock_guard<std::mutex> lock(keyframe_queue_mutex);
     keyframe_queue.push_back(keyframe);
@@ -871,7 +871,7 @@ private:
         break;
       }
 
-      KeyFrame::Ptr keyframe(new KeyFrame(key_frame_directory, graph_slam->graph.get(), shared_from_this()));
+      KeyFrame::Ptr keyframe(new KeyFrame(key_frame_directory, graph_slam->graph.get(), this));
       keyframes.push_back(keyframe);
     }
     std::cout << "loaded " << keyframes.size() << " keyframes" <<std::endl;

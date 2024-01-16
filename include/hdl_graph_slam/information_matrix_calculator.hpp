@@ -14,7 +14,7 @@ public:
   using PointT = pcl::PointXYZI;
 
   InformationMatrixCalculator() {}
-  InformationMatrixCalculator(rclcpp::Node::SharedPtr parent_node);
+  InformationMatrixCalculator(rclcpp::Node *parent_node);
   ~InformationMatrixCalculator();
 
   template<typename ParamServer>

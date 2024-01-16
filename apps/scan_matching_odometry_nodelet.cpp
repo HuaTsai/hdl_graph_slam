@@ -103,7 +103,7 @@ private:
       downsample_filter = passthrough;
     }
 
-    registration = select_registration_method(shared_from_this());
+    registration = select_registration_method(this);
   }
 
   /**

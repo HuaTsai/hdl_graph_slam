@@ -36,7 +36,7 @@ public:
    * @brief constructor
    * @param pnh
    */
-  LoopDetector(rclcpp::Node::SharedPtr parent_node) : node(parent_node) {
+  LoopDetector(rclcpp::Node *parent_node) : node(parent_node) {
     
     distance_thresh = node->declare_parameter("distance_thresh", 5.0);
     accum_distance_thresh = node->declare_parameter("accum_distance_thresh", 8.0);
@@ -173,7 +173,7 @@ private:
   }
 
 private:
-  rclcpp::Node::SharedPtr node;
+  rclcpp::Node *node;
 
   double distance_thresh;                 // estimated distance between keyframes consisting a loop must be less than this distance
   double accum_distance_thresh;           // traveled distance between ...

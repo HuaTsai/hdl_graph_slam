@@ -7,7 +7,7 @@
 
 namespace hdl_graph_slam {
 
-InformationMatrixCalculator::InformationMatrixCalculator(rclcpp::Node::SharedPtr parent_node) {
+InformationMatrixCalculator::InformationMatrixCalculator(rclcpp::Node *parent_node) {
   use_const_inf_matrix = parent_node->declare_parameter<bool>("use_const_inf_matrix", false);
   const_stddev_x = parent_node->declare_parameter<double>("const_stddev_x", 0.5);
   const_stddev_q = parent_node->declare_parameter<double>("const_stddev_q", 0.1);

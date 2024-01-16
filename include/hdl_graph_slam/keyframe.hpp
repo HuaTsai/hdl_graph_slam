@@ -25,8 +25,8 @@ public:
   using PointT = pcl::PointXYZI;
   using Ptr = std::shared_ptr<KeyFrame>;
 
-  KeyFrame(const rclcpp::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud, rclcpp::Node::SharedPtr parent_node);
-  KeyFrame(const std::string& directory, g2o::HyperGraph* graph, rclcpp::Node::SharedPtr parent_node);
+  KeyFrame(const rclcpp::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud, rclcpp::Node *parent_node);
+  KeyFrame(const std::string& directory, g2o::HyperGraph* graph, rclcpp::Node *parent_node);
   virtual ~KeyFrame();
 
   void save(const std::string& directory);
@@ -46,8 +46,8 @@ public:
   boost::optional<Eigen::Vector3d> acceleration;    //
   boost::optional<Eigen::Quaterniond> orientation;  //
 
-  g2o::VertexSE3* node;  // node instance
-  rclcpp::Node::SharedPtr rosnode;
+  g2o::VertexSE3 *node;  // node instance
+  rclcpp::Node *rosnode;
 };
 
 /**

@@ -19,7 +19,7 @@
 
 namespace hdl_graph_slam {
 
-pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>::Ptr select_registration_method(rclcpp::Node::SharedPtr node) {
+pcl::Registration<pcl::PointXYZI, pcl::PointXYZI>::Ptr select_registration_method(rclcpp::Node *node) {
   using PointT = pcl::PointXYZI;
 
   // select a registration method (ICP, GICP, NDT)

@@ -10,9 +10,9 @@
 
 namespace hdl_graph_slam {
 
-KeyFrame::KeyFrame(const rclcpp::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud, rclcpp::Node::SharedPtr parent_node) : stamp(stamp), odom(odom), accum_distance(accum_distance), cloud(cloud), node(nullptr), rosnode(parent_node) {}
+KeyFrame::KeyFrame(const rclcpp::Time& stamp, const Eigen::Isometry3d& odom, double accum_distance, const pcl::PointCloud<PointT>::ConstPtr& cloud, rclcpp::Node *parent_node) : stamp(stamp), odom(odom), accum_distance(accum_distance), cloud(cloud), node(nullptr), rosnode(parent_node) {}
 
-KeyFrame::KeyFrame(const std::string& directory, g2o::HyperGraph* graph, rclcpp::Node::SharedPtr parent_node) : stamp(), odom(Eigen::Isometry3d::Identity()), accum_distance(-1), cloud(nullptr), node(nullptr), rosnode(parent_node) {
+KeyFrame::KeyFrame(const std::string& directory, g2o::HyperGraph* graph, rclcpp::Node *parent_node) : stamp(), odom(Eigen::Isometry3d::Identity()), accum_distance(-1), cloud(nullptr), node(nullptr), rosnode(parent_node) {
   load(directory, graph);
 }
 
