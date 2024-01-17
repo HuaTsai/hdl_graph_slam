@@ -28,7 +28,6 @@ namespace hdl_graph_slam {
 class ScanMatchingOdometryNodelet : public rclcpp::Node {
 public:
   using PointT = pcl::PointXYZI;
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   ScanMatchingOdometryNodelet(const rclcpp::NodeOptions &options = rclcpp::NodeOptions()) : Node("scan_matching_odometry_nodelet", options) {
     RCLCPP_DEBUG(this->get_logger(), "initializing scan_matching_odometry_nodelet...");

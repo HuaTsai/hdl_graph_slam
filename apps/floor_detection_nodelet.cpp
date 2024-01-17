@@ -17,7 +17,6 @@ namespace hdl_graph_slam {
 class FloorDetectionNodelet : public rclcpp::Node {
 public:
   using PointT = pcl::PointXYZI;
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   FloorDetectionNodelet(const rclcpp::NodeOptions options = rclcpp::NodeOptions()) : Node("floor_detection_nodelet", options) {
     RCLCPP_DEBUG(this->get_logger(), "initializing floor_detection_nodelet...");
@@ -25,11 +24,11 @@ public:
     initialize_params();
 
     points_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-      points_topic, 256, std::bind(&FloorDetectionNodelet::cloud_callback, this, std::placeholders::_1));
+      "filtered_points", 256, std::bind(&FloorDetectionNodelet::cloud_callback, this, std::placeholders::_1));
     floor_pub = this->create_publisher<hdl_graph_slam::msg::FloorCoeffs>("/floor_detection/floor_coeffs", 32);
 
     read_until_pub = this->create_publisher<std_msgs::msg::Header>("/floor_detection/read_until", 32);
-    floor_filtered_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/floor_detection/floor_filtered_points", 32);
+    // floor_filtered_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/floor_detection/floor_filtered_points", 32);
     floor_points_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/floor_detection/floor_points", 32);
   }
 
@@ -81,7 +80,7 @@ private:
     // for offline estimation
     std_msgs::msg::Header read_until;
     read_until.frame_id = points_topic;
-    read_until.stamp.sec = cloud_msg->header.stamp.sec + 1.0;
+    read_until.stamp = rclcpp::Duration(1, 0) + cloud_msg->header.stamp;
     read_until_pub->publish(read_until);
 
     read_until.frame_id = "/filtered_points";
@@ -110,12 +109,12 @@ private:
 
     pcl::transformPointCloud(*filtered, *filtered, static_cast<Eigen::Matrix4f>(tilt_matrix.inverse()));
 
-    if(floor_filtered_pub->get_subscription_count()) {
-      filtered->header = cloud->header;
-      sensor_msgs::msg::PointCloud2 pc2;
-      pcl::toROSMsg(*filtered, pc2);
-      floor_filtered_pub->publish(pc2);
-    }
+    // if(floor_filtered_pub->get_subscription_count()) {
+    //   filtered->header = cloud->header;
+    //   sensor_msgs::msg::PointCloud2 pc2;
+    //   pcl::toROSMsg(*filtered, pc2);
+    //   floor_filtered_pub->publish(pc2);
+    // }
 
     // too few points for RANSAC
     if(filtered->size() < floor_pts_thresh) {
@@ -233,7 +232,7 @@ private:
 
   rclcpp::Publisher<hdl_graph_slam::msg::FloorCoeffs>::SharedPtr floor_pub;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr floor_points_pub;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr floor_filtered_pub;
+  // rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr floor_filtered_pub;
 
   std::string points_topic;
   rclcpp::Publisher<std_msgs::msg::Header>::SharedPtr read_until_pub;
