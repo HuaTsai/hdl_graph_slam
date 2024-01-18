@@ -182,7 +182,7 @@ def generate_launch_description():
                                 "max_stddev_q": 0.2,
                                 "graph_update_interval": 3.0,
                                 "map_cloud_update_interval": 10.0,
-                                "map_cloud_resolution": 0.0,
+                                "map_cloud_resolution": 0.1,
                             }
                         ],
                     ),
