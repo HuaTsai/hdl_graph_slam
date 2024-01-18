@@ -84,10 +84,8 @@ public:
     fix_first_node_stddev = this->declare_parameter<std::string>("fix_first_node_stddev", "1 1 1 1 1 1");
     odometry_edge_robust_kernel = this->declare_parameter<std::string>("odometry_edge_robust_kernel", "NONE");
     odometry_edge_robust_kernel_size = this->declare_parameter<double>("odometry_edge_robust_kernel_size", 1.0);
-
     gps_edge_robust_kernel = this->declare_parameter<std::string>("gps_edge_robust_kernel", "NONE");
     gps_edge_robust_kernel_size = this->declare_parameter<double>("gps_edge_robust_kernel_size", 1.0);
-
     imu_orientation_edge_robust_kernel = this->declare_parameter<std::string>("imu_orientation_edge_robust_kernel", "NONE");
     imu_orientation_edge_robust_kernel_size = this->declare_parameter<double>("imu_orientation_edge_robust_kernel_size", 1.0);
     imu_acceleration_edge_robust_kernel = this->declare_parameter<std::string>("imu_acceleration_edge_robust_kernel", "NONE");
@@ -96,6 +94,7 @@ public:
     floor_edge_robust_kernel_size = this->declare_parameter<double>("floor_edge_robust_kernel_size", 1.0);
     loop_closure_edge_robust_kernel = this->declare_parameter<std::string>("loop_closure_edge_robust_kernel", "NONE");
     loop_closure_edge_robust_kernel_size = this->declare_parameter<double>("loop_closure_edge_robust_kernel_size", 1.0);
+  
     fix_first_node_adaptive = this->declare_parameter<bool>("fix_first_node_adaptive", true);
     g2o_solver_num_iterations = this->declare_parameter<int>("g2o_solver_num_iterations", 1024);
 
@@ -301,9 +300,7 @@ private:
    */
   void gps_callback(geographic_msgs::msg::GeoPointStamped::SharedPtr gps_msg) {
     std::lock_guard<std::mutex> lock(gps_queue_mutex);
-    // gps_msg->header.stamp = gps_msg->header.stamp + rclcpp::Duration(gps_time_offset);
-    // gps_msg->header.stamp = gps_msg->header.stamp + rclcpp::Duration::from_seconds(gps_time_offset);
-    gps_msg->header.stamp = rclcpp::Time(gps_msg->header.stamp) + rclcpp::Duration::from_seconds(gps_time_offset);
+    gps_msg->header.stamp = rclcpp::Duration(gps_time_offset, 0) + gps_msg->header.stamp;
     gps_queue.push_back(gps_msg);
   }
 
