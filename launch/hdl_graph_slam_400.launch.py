@@ -5,6 +5,7 @@ from launch_ros.actions import ComposableNodeContainer
 from launch_ros.actions import Node
 from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
+from launch.actions import DeclareLaunchArgument
 
 
 def generate_launch_description():
@@ -17,6 +18,7 @@ def generate_launch_description():
     enable_imu_acc = False
     enable_imu_ori = False
     points_topic = "/velodyne_points"
+    imu_topic = "/gpsimu_driver/imu_data"
     map_frame_id = "map"
     lidar_odom_frame_id = "odom"
 
@@ -58,7 +60,9 @@ def generate_launch_description():
                         parameters=[
                             {
                                 "use_sim_time": use_sim_time,
-                                "velodyne_points": points_topic,
+                                "points_topic": points_topic,
+                                "imu_topic": imu_topic,
+                                "useimu": True,
                                 "base_link_frame": "base_link",
                                 "use_distance_filter": True,
                                 "distance_near_thresh": 0.1,

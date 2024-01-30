@@ -30,18 +30,22 @@ public:
     tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
 
-    bool deskewing = this->declare_parameter<bool>("deskewing", false);
-    if(deskewing) {
-      imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("/imu/data", 1, std::bind(&PrefilteringNodelet::imu_callback, this, std::placeholders::_1));
+    useimu = this->declare_parameter<bool>("useimu", false);
+    if(useimu) {
+      imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 32, std::bind(&PrefilteringNodelet::imu_callback, this, std::placeholders::_1));
     }
 
-    points_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>("/velodyne_points", 64, std::bind(&PrefilteringNodelet::cloud_callback, this, std::placeholders::_1));
+    points_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(points_topic, 32, std::bind(&PrefilteringNodelet::cloud_callback, this, std::placeholders::_1));
     points_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/filtered_points", 32);
-    colored_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/colored_points", 32);
+    // HuaTsai: Useless unless we want to see the scan order
+    // colored_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/colored_points", 32);
   }
 
 private:
   void initialize_params() {
+    points_topic = this->declare_parameter("points_topic", "/velodyne_points");
+    imu_topic = this->declare_parameter("imu_topic", "/imu/data");
+
     std::string downsample_method = this->declare_parameter<std::string>("downsample_method", "VOXELGRID");
     double downsample_resolution = this->declare_parameter<double>("downsample_resolution", 0.1);
 
@@ -105,7 +109,9 @@ private:
       return;
     }
 
-    src_cloud = deskewing(src_cloud);
+    if (useimu && !imu_queue.empty()) {
+      src_cloud = deskewing(src_cloud);
+    }
 
     // if base_link_frame is defined, transform the input cloud to the frame
     if(!base_link_frame.empty()) {
@@ -181,43 +187,36 @@ private:
   }
 
   pcl::PointCloud<PointT>::Ptr deskewing(pcl::PointCloud<PointT>::Ptr cloud) {
-    rclcpp::Time stamp = pcl_conversions::fromPCL(cloud->header.stamp);
-    if(imu_queue.empty()) {
-      return cloud;
-    }
+    // Compare to message time, initialize with RCL_ROS_TIME
+    rclcpp::Time stamp(cloud->header.stamp * 1000ull, RCL_ROS_TIME);
 
-    // the color encodes the point number in the point sequence
-    if(colored_pub->get_subscription_count()) {
-      pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored(new pcl::PointCloud<pcl::PointXYZRGB>());
-      colored->header = cloud->header;
-      colored->is_dense = cloud->is_dense;
-      colored->width = cloud->width;
-      colored->height = cloud->height;
-      colored->resize(cloud->size());
-
-      for(size_t i = 0; i < cloud->size(); i++) {
-        double t = static_cast<double>(i) / cloud->size();
-        colored->at(i).getVector4fMap() = cloud->at(i).getVector4fMap();
-        colored->at(i).r = 255 * t;
-        colored->at(i).g = 128;
-        colored->at(i).b = 255 * (1 - t);
-      }
-      sensor_msgs::msg::PointCloud2 pc2;
-      pcl::toROSMsg(*colored, pc2);
-      colored_pub->publish(pc2);
-    }
+    // HuaTsai: Useless unless we want to see the scan order
+    // if(colored_pub->get_subscription_count()) {
+    //   pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored(new pcl::PointCloud<pcl::PointXYZRGB>());
+    //   colored->header = cloud->header;
+    //   colored->is_dense = cloud->is_dense;
+    //   colored->width = cloud->width;
+    //   colored->height = cloud->height;
+    //   colored->resize(cloud->size());
+    //
+    //   for(size_t i = 0; i < cloud->size(); i++) {
+    //     double t = static_cast<double>(i) / cloud->size();
+    //     colored->at(i).getVector4fMap() = cloud->at(i).getVector4fMap();
+    //     colored->at(i).r = 255 * t;
+    //     colored->at(i).g = 128;
+    //     colored->at(i).b = 255 * (1 - t);
+    //   }
+    //   sensor_msgs::msg::PointCloud2 pc2;
+    //   pcl::toROSMsg(*colored, pc2);
+    //   colored_pub->publish(pc2);
+    // }
 
     sensor_msgs::msg::Imu::ConstSharedPtr imu_msg = imu_queue.front();
 
-    auto loc = imu_queue.begin();
-    for(; loc != imu_queue.end(); loc++) {
-      imu_msg = (*loc);
-      if(rclcpp::Time((*loc)->header.stamp) > stamp) {
-        break;
-      }
-    }
+    // HuaTsai: better to use std::upper_bound instaed of iterating all
+    auto it = std::upper_bound(imu_queue.begin(), imu_queue.end(), stamp, [](const auto &a, const auto &b) { return a < b->header.stamp; });
+    imu_queue.erase(imu_queue.begin(), it);
 
-    imu_queue.erase(imu_queue.begin(), loc);
 
     Eigen::Vector3f ang_v(imu_msg->angular_velocity.x, imu_msg->angular_velocity.y, imu_msg->angular_velocity.z);
     ang_v *= -1;
@@ -251,11 +250,15 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr points_sub;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr points_pub;
 
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr colored_pub;
+  // HuaTsai: Useless unless we want to see the scan order
+  // rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr colored_pub;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener;
 
+  bool useimu;
+  std::string points_topic;
+  std::string imu_topic;
   std::string base_link_frame;
 
   bool use_distance_filter;
