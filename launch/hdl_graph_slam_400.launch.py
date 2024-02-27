@@ -5,7 +5,6 @@ from launch_ros.actions import ComposableNodeContainer
 from launch_ros.actions import Node
 from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
-from launch.actions import DeclareLaunchArgument
 
 
 def generate_launch_description():
@@ -46,6 +45,12 @@ def generate_launch_description():
                         [FindPackageShare("hdl_graph_slam"), "rviz", "hdl_graph_slam.rviz"]
                     ),
                 ],
+            ),
+            Node(
+                package="ros2bag",
+                executable="play",
+                arguments=["/home/foxconn/Documents/hdl_400", "--delay", "3.0"],
+                output="screen",
             ),
             ComposableNodeContainer(
                 name="hdl_graph_slam_container",
