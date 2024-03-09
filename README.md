@@ -92,6 +92,10 @@ git clone https://github.com/SMRT-AIST/fast_gicp.git --recursive
 git clone https://github.com/koide3/hdl_graph_slam
 
 cd .. && catkin_make -DCMAKE_BUILD_TYPE=Release
+
+# for galactic and humble
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install
 ```
 
 **[optional]** *bag_player.py* script requires ProgressBar2.
